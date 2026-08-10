@@ -3,6 +3,7 @@
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin
+from django.http import JsonResponse
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
@@ -12,7 +13,28 @@ api_v1_patterns = [
     path("businesses/", include("apps.businesses.urls")),
 ]
 
+
+def api_root(request):
+    """
+    This is a backend API only — there's no server-rendered homepage here
+    (the Next.js frontend at :3000 is the actual UI). Hitting `/` bare
+    otherwise 404s with Django's raw debug page, which is confusing when
+    you're just checking the server is up — so return a small pointer
+    instead.
+    """
+    return JsonResponse(
+        {
+            "platform": settings.PLATFORM_NAME,
+            "status": "ok",
+            "api": request.build_absolute_uri("/api/v1/"),
+            "docs": request.build_absolute_uri("/api/docs/"),
+            "admin": request.build_absolute_uri("/admin/"),
+        }
+    )
+
+
 urlpatterns = [
+    path("", api_root, name="api-root"),
     path("admin/", admin.site.urls),
     path("api/v1/", include(api_v1_patterns)),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
