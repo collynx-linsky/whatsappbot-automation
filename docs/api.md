@@ -170,9 +170,20 @@ no `<uuid:pk>` in either URL, unlike every other resource in this API.
 | PATCH | `settings/` | manager+ | Partial update — any subset of `AISettings`' writable fields (see `docs/database.md`). |
 | POST | `test/` | manager+ | Onboarding "test your AI" step. `{"message": "..."}` → runs the same handoff-check + prompt-building logic as a real inbound message, without touching `Conversation`/`Message`. Returns `{handed_off, reason?, reply?, confidence?}`. |
 
+## Knowledge base — `/api/v1/knowledge/`
+
+See `docs/rag.md` for the full extract/chunk/embed/retrieve flow.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `documents/` | staff+ | Documents in the caller's own tenant. |
+| POST | `documents/` | manager+ | `{business, title, source_type, file?, raw_text?}` — `file` required (and extension-validated: `.txt`/`.pdf`) when `source_type=upload`; `raw_text` required when `source_type=text`. Processing (extract/chunk/embed) is queued on the `low_priority` Celery queue; the response's `status` is `pending` until it finishes. |
+| GET | `documents/<uuid:pk>/` | staff+ | 404 if in another tenant. |
+| DELETE | `documents/<uuid:pk>/` | manager+ | 404 if in another tenant. |
+| GET | `documents/<uuid:pk>/chunks/` | staff+ | What was actually indexed from this document — `is_embedded` per chunk. |
+
 ## Not built yet
 
 Every other `/api/v1/<domain>/` path listed in the master spec
-(`knowledge/`, `campaigns/`, `analytics/`, `notifications/`,
-`billing/`, `audit/`) is not implemented — see `docs/ROADMAP.md` for which
-phase builds each one.
+(`campaigns/`, `analytics/`, `notifications/`, `billing/`, `audit/`) is
+not implemented — see `docs/ROADMAP.md` for which phase builds each one.

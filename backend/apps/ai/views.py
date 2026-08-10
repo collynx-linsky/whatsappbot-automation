@@ -11,7 +11,7 @@ from core.permissions import IsManagerOrAbove
 from .models import AISettings
 from .providers import get_provider
 from .serializers import AISettingsSerializer, AITestResponseSerializer, AITestSerializer
-from .services import build_system_prompt, wants_human
+from .services import append_knowledge_context, build_system_prompt, wants_human
 
 logger = logging.getLogger("waba")
 
@@ -89,6 +89,7 @@ class AITestView(APIView):
             return Response(AITestResponseSerializer(payload).data)
 
         system_prompt = build_system_prompt(settings_.business, settings_)
+        system_prompt = append_knowledge_context(system_prompt, settings_.business, text)
         reply = provider.generate_reply(
             system_prompt=system_prompt,
             history=[],

@@ -125,6 +125,20 @@ is otherwise invisible to them), `max_response_length`, `provider`
 Inherits `core.models.BaseModel`. See `docs/ai.md` for the full reply/
 handoff flow.
 
+### `knowledge.KnowledgeDocument` / `KnowledgeChunk`
+RAG knowledge base (spec section 9). `KnowledgeDocument`: `business` (FK),
+`uploaded_by`, `title`, `source_type` (`upload|text`), `file` (single
+`.txt`/`.pdf`, validated), `raw_text` (pasted content, or text extracted
+from `file` once processed), `status` (`pending|processing|ready|failed`),
+`error_message`, `chunk_count`, `embedded_chunk_count` (how many chunks
+got a real embedding vs. fell back to keyword-only — see `docs/rag.md`).
+`KnowledgeChunk`: `document` (FK), `chunk_index`, `content`, `embedding`
+(`JSONField`, a plain float list — **no pgvector extension on this
+project's Postgres instance**, so retrieval does pure-Python cosine
+similarity rather than a vector index; see `docs/rag.md` for the
+documented upgrade path), `embedding_model` (blank if never embedded).
+Unique `(document, chunk_index)`. Both inherit `core.models.BaseModel`.
+
 ### `products.Product`
 Fields per spec section 13: `name`, `sku` (optional — `(tenant, sku)`
 unique only when set, same conditional-constraint pattern as

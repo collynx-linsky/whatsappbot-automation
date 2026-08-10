@@ -58,6 +58,7 @@ LOCAL_APPS = [
     "apps.products",
     "apps.orders",
     "apps.ai",
+    "apps.knowledge",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -222,8 +223,9 @@ CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_TASK_ROUTES = {
     "apps.whatsapp.tasks.*": {"queue": "high_priority"},
     "apps.ai.tasks.*": {"queue": "default"},
-    # More routes added as background-processing-heavy apps (knowledge,
-    # campaigns) land in later phases.
+    "apps.knowledge.tasks.*": {"queue": "low_priority"},
+    # More routes added as background-processing-heavy apps (campaigns)
+    # land in later phases.
 }
 
 # ── Internationalization ──────────────────────────────────────
@@ -311,6 +313,7 @@ SPECTACULAR_SETTINGS = {
         {"name": "products", "description": "Product catalog"},
         {"name": "orders", "description": "Customer orders"},
         {"name": "ai", "description": "AI assistant configuration & testing"},
+        {"name": "knowledge", "description": "RAG knowledge base documents"},
     ],
 }
 

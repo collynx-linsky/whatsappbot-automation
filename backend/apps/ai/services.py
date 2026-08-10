@@ -75,6 +75,24 @@ def build_system_prompt(business, settings_: AISettings) -> str:
     )
 
 
+def append_knowledge_context(system_prompt: str, business, query: str) -> str:
+    """
+    RAG grounding (spec section 9): pulls the handful of knowledge-base
+    chunks most relevant to the customer's message and appends them to the
+    system prompt, so "never invent facts" (see build_system_prompt) has
+    real business content to draw on instead of only the profile fields.
+    A knowledge base with no documents yet (or nothing relevant to this
+    query) leaves the prompt unchanged — this is additive, never required.
+    """
+    from apps.knowledge.services import build_context_block, retrieve_relevant_chunks
+
+    chunks = retrieve_relevant_chunks(business, query)
+    context_block = build_context_block(chunks)
+    if not context_block:
+        return system_prompt
+    return f"{system_prompt}\n\n{context_block}"
+
+
 def _recent_history(conversation, exclude_message_id) -> list[dict]:
     messages = (
         conversation.messages.exclude(id=exclude_message_id)
@@ -145,6 +163,7 @@ def generate_ai_reply(inbound_message: Message) -> Message | None:
 
     business = settings_.business
     system_prompt = build_system_prompt(business, settings_)
+    system_prompt = append_knowledge_context(system_prompt, business, inbound_message.content)
     history = _recent_history(conversation, inbound_message.id)
 
     reply = provider.generate_reply(

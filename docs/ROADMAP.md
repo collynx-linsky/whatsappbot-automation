@@ -220,27 +220,90 @@ Corresponds to spec Phase 8:
   isolation and RBAC (`staff` role gets `403` on `PATCH`) both proven with
   two real seeded business owners.
 
+## Done (this session — "RAG Knowledge Base")
+
+Corresponds to spec Phase 9:
+
+- Models: `knowledge.KnowledgeDocument` (per-business, `upload|text`
+  source, status machine `pending → processing → ready|failed`),
+  `knowledge.KnowledgeChunk` (`embedding` as a plain `JSONField` float
+  list — **no pgvector on this project's native Postgres instance**,
+  confirmed via `pg_available_extensions`; documented upgrade path in
+  `docs/rag.md` rather than silently faking vector search).
+  `apps.knowledge.providers.OpenAIEmbeddingProvider` (spec section 38,
+  same plain-`requests` pattern as every other provider in this codebase)
+  + `get_embedding_provider()` returning `None` when `OPENAI_API_KEY` is
+  blank — **no real API key was available this session**, same posture
+  as Phase 8.
+- Pipeline (`apps.knowledge.services`): `extract_text` (`.txt` decoded
+  directly, `.pdf` via `pypdf` — new lightweight dependency, no compiled
+  extensions), `chunk_text` (200-word chunks, 30-word overlap, word-
+  boundary safe), `process_document` (idempotent — replaces old chunks on
+  re-run), `retrieve_relevant_chunks` (cosine similarity when chunks are
+  embedded, keyword-overlap fallback otherwise — a knowledge base is
+  never silently unused just because no embedding provider is
+  configured), run via `apps.knowledge.tasks.process_knowledge_document_task`
+  on the `low_priority` queue.
+- Wired into the AI reply pipeline: `apps.ai.services.append_knowledge_context`
+  retrieves the top-3 relevant chunks for the customer's message and
+  appends them to the system prompt — this is what actually gives
+  `build_system_prompt`'s "never invent facts" instruction (Phase 8)
+  something true to draw from. `apps.ai` → `apps.knowledge` is a
+  one-directional import, same decoupling discipline as every other
+  cross-app connection in this codebase.
+- API: `GET/POST /api/v1/knowledge/documents/` (GET staff+, POST
+  manager+), `GET/DELETE /api/v1/knowledge/documents/{id}/`,
+  `GET /api/v1/knowledge/documents/{id}/chunks/` — tenant-isolated,
+  cross-tenant `business` rejected, file extension validated
+  (`.txt`/`.pdf` only) before anything is saved to disk. This also closes
+  the file-upload-validation gap `docs/security.md` had flagged open
+  since the WhatsApp phase.
+- `seed_dev_data`: 1-2 sample knowledge documents per business, processed
+  *synchronously* at seed time (not via Celery) so seeded data is
+  immediately usable without a running worker.
+- 29 new passing tests (138 total) — chunking, extraction, the full
+  process/retrieve pipeline (mocked HTTP for success, real for the
+  no-provider degraded path), the documents API, and an integration test
+  proving a knowledge-base chunk actually reaches the AI provider's
+  system prompt. Same test-design gotcha as Phase 8 recurred and was
+  fixed the same way: `CELERY_TASK_ALWAYS_EAGER` meant creating an
+  inbound `Message` in the integration test would also synchronously
+  fire the real AI signal — disconnected it for that test.
+- `docs/rag.md` (new); `docs/database.md`, `docs/api.md`,
+  `docs/security.md` updated.
+- **Also verified live**: seeded knowledge documents confirmed `ready`
+  with `embedded_chunk_count: 0` (correct degraded state) via `curl`
+  against a running dev server; created a new document through a real
+  authenticated `POST`; directly re-invoked `process_document()` against
+  it to confirm the extract → chunk → store pipeline works end-to-end
+  against the real Postgres database. **Environment finding, not a code
+  bug**: this dev machine's Redis broker (db 1) is shared across several
+  of this user's unrelated projects and appears to have a stale worker
+  process from earlier in this session still attached — a freshly queued
+  task wasn't visibly consumed by a newly started worker. Full detail and
+  the recommended fix (kill stale workers / dedicate a Redis db to this
+  project) in `docs/rag.md`.
+
 ## Not built yet — placeholder app directories only
 
-`backend/apps/{knowledge,campaigns,analytics,notifications,billing,
-audit}/` exist as empty Python packages (just `__init__.py`), not
-registered in `INSTALLED_APPS`, no models/views. They map to the spec's
-remaining phases:
+`backend/apps/{campaigns,analytics,notifications,billing,audit}/` exist
+as empty Python packages (just `__init__.py`), not registered in
+`INSTALLED_APPS`, no models/views. They map to the spec's remaining
+phases:
 
 | Phase | Spec # | Builds |
 |---|---|---|
 | 4 (remainder) | Business management | Business settings UI (opening hours, branding, etc.) — staff invites are done, see above |
-| 9 | RAG knowledge base | `apps.knowledge` — KnowledgeDocument/Chunk/Embedding, upload → chunk → embed → retrieve pipeline, pgvector |
 | 11 | Marketing | `apps.campaigns` — segments, templates, opt-in/messaging-window compliance |
 | 12 | Analytics | `apps.analytics` — funnel (conversation → lead → qualified → order → revenue), platform-level stats for super admin |
 | 13 | Billing/subscriptions | `apps.billing` — actually enforce `Plan` limits, `Subscription`, `UsageRecord`, `Invoice` |
 | 14 | Frontend polish | WhatsApp-style inbox, onboarding wizard, full dashboard pages |
-| 15 | Testing/security | Broader test coverage, rate limiting, file upload validation |
+| 15 | Testing/security | Broader test coverage, rate limiting |
 | 16 | Docker/deployment | Production Dockerfiles, CI, real deployment target |
 
-Also not yet started: `docs/rag.md`, `docs/deployment.md`,
-`docs/troubleshooting.md` — write these when their corresponding phase
-lands, not before (a doc for code that doesn't exist yet just goes stale).
+Also not yet started: `docs/deployment.md`, `docs/troubleshooting.md` —
+write these when their corresponding phase lands, not before (a doc for
+code that doesn't exist yet just goes stale).
 
 ## Known gaps flagged honestly (not silently deferred)
 

@@ -6,10 +6,11 @@ phase actually builds: default Plans, sample tenants + businesses + owners,
 a Manager/Staff account for two of the three businesses, a couple of
 sample customers per business plus one seeded conversation with messages,
 a small product catalog per business, one confirmed sample order tying
-a seeded conversation to real product data, and default AI settings
-(hybrid mode, human handoff on) per business. Later phases (campaigns,
-knowledge base, ...) extend this command as those apps land — see
-docs/ROADMAP.md.
+a seeded conversation to real product data, default AI settings (hybrid
+mode, human handoff on), and a couple of RAG knowledge base documents per
+business (processed synchronously, immediately usable without a Celery
+worker running). Later phases (campaigns, ...) extend this command as
+those apps land — see docs/ROADMAP.md.
 
 All data is clearly fictional. Safe to re-run (idempotent by email/slug).
 """
@@ -25,6 +26,8 @@ from apps.ai.models import AISettings
 from apps.businesses.models import Business
 from apps.conversations.models import Conversation
 from apps.customers.models import Customer
+from apps.knowledge.models import KnowledgeDocument
+from apps.knowledge.services import process_document
 from apps.messages.models import Message
 from apps.orders.models import Order, OrderItem
 from apps.products.models import Product
@@ -72,6 +75,25 @@ SAMPLE_BUSINESSES = [
             },
             {"name": "iPhone 15", "sku": "APL-IP15", "price": Decimal("2100000.00"), "stock": 3},
         ],
+        "knowledge": [
+            {
+                "title": "Warranty Policy",
+                "text": (
+                    "All electronics sold by ABC Electronics carry a 12-month manufacturer "
+                    "warranty. Bring your receipt and the original packaging to any of our "
+                    "stores for a warranty claim. Water damage and physical damage are not "
+                    "covered."
+                ),
+            },
+            {
+                "title": "Delivery Information",
+                "text": (
+                    "We deliver within Dar es Salaam within 2 business days. Upcountry "
+                    "delivery takes 5-7 business days via our courier partner. Delivery fees "
+                    "depend on the destination and are calculated at checkout."
+                ),
+            },
+        ],
     },
     {
         "tenant_name": "Mambo Fashion House",
@@ -113,6 +135,16 @@ SAMPLE_BUSINESSES = [
                 "stock": 15,
             },
         ],
+        "knowledge": [
+            {
+                "title": "Sizing Guide",
+                "text": (
+                    "Our dresses run true to size. Size M fits a bust of 90-95cm and a waist "
+                    "of 70-75cm. If you're between sizes, we recommend sizing up. Free "
+                    "exchanges are offered within 7 days if a size doesn't fit."
+                ),
+            },
+        ],
     },
     {
         "tenant_name": "Kijani Foods Co",
@@ -135,6 +167,16 @@ SAMPLE_BUSINESSES = [
         "products": [
             {"name": "Matoke Platter", "sku": "", "price": Decimal("15000.00"), "stock": 40},
             {"name": "Grilled Tilapia", "sku": "", "price": Decimal("28000.00"), "stock": 20},
+        ],
+        "knowledge": [
+            {
+                "title": "Opening Hours & Location",
+                "text": (
+                    "Kijani Foods is open every day from 7am to 10pm, including public "
+                    "holidays. We are located on Kampala Road, next to the central market. "
+                    "We also offer catering for events with 3 days notice."
+                ),
+            },
         ],
     },
 ]
@@ -188,10 +230,13 @@ class Command(BaseCommand):
                 business = Business.objects.filter(tenant=existing_owner.tenant).first()
                 if business is not None:
                     self._seed_ai_settings(existing_owner.tenant, business)
+                    self._seed_knowledge_documents(
+                        existing_owner.tenant, business, existing_owner, spec.get("knowledge", [])
+                    )
                 self.stdout.write(
                     self.style.WARNING(
                         f"{spec['business_name']}: owner already exists - skipping creation, "
-                        "backfilled AI settings."
+                        "backfilled AI settings + knowledge base."
                     )
                 )
                 continue
@@ -224,6 +269,7 @@ class Command(BaseCommand):
             )
             self._seed_staff(tenant, spec.get("staff", []))
             self._seed_ai_settings(tenant, business)
+            self._seed_knowledge_documents(tenant, business, owner, spec.get("knowledge", []))
             products = self._seed_products(tenant, spec.get("products", []))
             customer, conversation = self._seed_customers_and_conversation(
                 tenant, owner, spec.get("customers", [])
@@ -275,6 +321,33 @@ class Command(BaseCommand):
             },
         )
         self.stdout.write(self.style.SUCCESS("  + AI settings (hybrid mode, handoff enabled)"))
+
+    def _seed_knowledge_documents(self, tenant, business, uploaded_by, knowledge_specs):
+        """
+        Sample RAG knowledge base entries (spec section 9), processed
+        synchronously here (not via Celery) so the seeded data is
+        immediately usable even without a running worker. With no
+        OPENAI_API_KEY configured, these become READY but unembedded —
+        apps.ai still retrieves from them via keyword fallback (see
+        docs/rag.md) rather than the knowledge base sitting unused.
+        """
+        for k_spec in knowledge_specs:
+            document, created = KnowledgeDocument.objects.get_or_create(
+                tenant=tenant,
+                business=business,
+                title=k_spec["title"],
+                defaults={
+                    "uploaded_by": uploaded_by,
+                    "source_type": KnowledgeDocument.SourceType.TEXT,
+                    "raw_text": k_spec["text"],
+                },
+            )
+            if created:
+                process_document(document)
+        if knowledge_specs:
+            self.stdout.write(
+                self.style.SUCCESS(f"  + {len(knowledge_specs)} knowledge base documents")
+            )
 
     def _seed_products(self, tenant, product_specs):
         """Sample catalog entries — enough variety to seed a sample order per business."""
@@ -383,6 +456,7 @@ class Command(BaseCommand):
                 f"{User.objects.count()} users, {Customer.objects.count()} customers, "
                 f"{Conversation.objects.count()} conversations, {Message.objects.count()} messages, "
                 f"{Product.objects.count()} products, {Order.objects.count()} orders, "
-                f"{AISettings.objects.count()} AI settings."
+                f"{AISettings.objects.count()} AI settings, "
+                f"{KnowledgeDocument.objects.count()} knowledge documents."
             )
         )

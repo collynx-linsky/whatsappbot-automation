@@ -67,12 +67,20 @@ response, proven by testing the actual rendered response body.
   failed-signature probing isn't throttled) and `/api/v1/ai/test/`
   (authenticated, but an unthrottled loop against it would burn a real
   provider's API quota/cost once `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` is
-  set — see `docs/ai.md`). Flagged in `docs/ROADMAP.md` as Phase 15 work.
-- File upload validation (type/size checks beyond `MAX_UPLOAD_SIZE_MB`)
-  lands with `apps.knowledge` (document uploads, Phase 9) and
-  `MessageAttachment` (already modeled, no upload endpoint yet).
+  set — see `docs/ai.md`). Also applies to `/api/v1/knowledge/documents/`
+  (POST) once embedding calls are live — an unthrottled loop uploading
+  documents burns the same real quota. Flagged in `docs/ROADMAP.md` as
+  Phase 15 work.
 - No "test the connection" call when a WhatsApp account is connected — a
   wrong/expired access token isn't caught until the first real send fails.
+
+**Resolved this session**: file upload validation — `apps.knowledge`'s
+`POST /api/v1/knowledge/documents/` rejects any file extension outside
+`.txt`/`.pdf` with a clean `400` before it's saved to disk
+(`apps.knowledge.services.validate_file_extension`), on top of the
+existing transport-level `MAX_UPLOAD_SIZE_MB` bound. `MessageAttachment`
+(chat media) still has no upload endpoint — that gap is specific to
+`apps.messages`, not a general "file upload validation" gap anymore.
 
 ## Audit logging
 
