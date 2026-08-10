@@ -41,6 +41,14 @@ class Customer(BaseModel):
     notes = models.TextField(blank=True)
     last_interaction_at = models.DateTimeField(null=True, blank=True)
 
+    # WhatsApp Business policy requires explicit opt-in before a business
+    # can send marketing messages — defaults to False deliberately (opt-in,
+    # not opt-out). Starting a conversation with the business does NOT by
+    # itself constitute opt-in, so nothing in this codebase flips this
+    # automatically; see apps.campaigns for where it's enforced.
+    marketing_opt_in = models.BooleanField(default=False)
+    marketing_opt_in_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         db_table = "customers_customer"
         ordering = ["-created_at"]

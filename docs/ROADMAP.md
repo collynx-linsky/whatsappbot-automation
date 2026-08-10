@@ -284,17 +284,80 @@ Corresponds to spec Phase 9:
   the recommended fix (kill stale workers / dedicate a Redis db to this
   project) in `docs/rag.md`.
 
+## Done (this session — "Marketing Campaigns")
+
+Corresponds to spec Phases 12 and 26:
+
+- Models: `campaigns.MessageTemplate` (status set manually — no real Meta
+  Template API access this session), `campaigns.Segment` (dynamic
+  `statuses`/`sources`/`tags` filters, re-evaluated live on every read),
+  `campaigns.Campaign`, `campaigns.CampaignRecipient` (per-customer
+  outcome, unique per `(campaign, customer)`).
+- **Compliance enforced structurally, not by convention** (spec section
+  26): added `Customer.marketing_opt_in`/`marketing_opt_in_at` (defaults
+  `False` — opt-in, not opt-out; never set implicitly by an inbound
+  WhatsApp message). `get_segment_customers` filters to
+  `marketing_opt_in=True` unconditionally; `send_campaign` re-checks it a
+  second time per recipient at actual send time, since a customer can
+  opt out between scheduling and sending. Extended
+  `apps.whatsapp.providers.MessagingProvider` with a distinct
+  `send_template_message` method (Meta's real "proactive marketing sends
+  must use an approved template" rule) — campaign sends are structurally
+  incapable of taking the free-text `send_text_message` path a staff/AI
+  reply uses.
+- New `Message.SenderType.CAMPAIGN` — deliberately **not** added to
+  `apps.whatsapp.signals._SENDABLE_SENDER_TYPES`; campaign sends create
+  their `Message` row directly (status already resolved from the real
+  provider call) rather than going through the generic PENDING→dispatch
+  path built for staff/AI replies.
+- API: `GET/POST /api/v1/campaigns/templates/`, `GET/PATCH .../templates/{id}/`,
+  `GET/POST /api/v1/campaigns/segments/`, `GET/PATCH/DELETE .../segments/{id}/`,
+  `GET .../segments/{id}/preview/`, `GET/POST /api/v1/campaigns/`,
+  `GET/PATCH /api/v1/campaigns/{id}/`, `POST .../{id}/send/`,
+  `GET .../{id}/recipients/` — all tenant-isolated, RBAC-gated
+  (manager+ for anything that creates/sends/approves).
+- `seed_dev_data`: one opted-in customer, one approved `MessageTemplate`,
+  one `Segment`, and one `draft` `Campaign` per business — never
+  auto-sent (sending is a deliberate user action via the API, not
+  something seed data does on its own).
+- 29 new passing tests (167 total) — segment filter evaluation, the full
+  send pipeline (mocked HTTP for success/failure, real for every
+  structural-failure path: unapproved template, no connected WhatsApp
+  account, zero opted-in recipients), the mid-flight-opt-out case, and
+  the API surface. **One real bug caught by testing, not by review, and
+  fixed**: `CampaignSendView.post` set `status=scheduled` *after* calling
+  `.delay()` — under eager Celery execution the task had already resolved
+  the campaign to `sent`/`failed` by then, and the stale in-memory object
+  overwrote that real outcome back to `scheduled` on save. Fixed by
+  saving `scheduled` before enqueueing, then refreshing from the database
+  after.
+- `docs/campaigns.md` (new); `docs/database.md`, `docs/api.md`,
+  `docs/security.md` updated.
+- **Also verified live**: seeded segment correctly reported
+  `customer_count: 1` against the one real seeded opted-in customer;
+  directly re-invoked `send_campaign()` against a live campaign to
+  confirm the real "no connected WhatsApp account" structural failure
+  end-to-end against the real Postgres database; tenant isolation and
+  RBAC both proven with two real seeded business owners.
+- **Bug caught and fixed mid-build, before any test ran**: a
+  `CampaignRecipient.message` FK string reference used
+  `"messages.Message"` instead of the actual registered app label
+  `"messaging.Message"` (see the `messaging.Message` note in this file's
+  Customer CRM section) — resolved to nothing and crashed
+  `manage.py check` with an opaque `AttributeError` inside Django's admin
+  inline checks, not a clear "app not found" error. Worth remembering:
+  that mislabeling always surfaces this way, not as an immediate error at
+  the FK declaration site.
+
 ## Not built yet — placeholder app directories only
 
-`backend/apps/{campaigns,analytics,notifications,billing,audit}/` exist
-as empty Python packages (just `__init__.py`), not registered in
-`INSTALLED_APPS`, no models/views. They map to the spec's remaining
-phases:
+`backend/apps/{analytics,notifications,billing,audit}/` exist as empty
+Python packages (just `__init__.py`), not registered in `INSTALLED_APPS`,
+no models/views. They map to the spec's remaining phases:
 
 | Phase | Spec # | Builds |
 |---|---|---|
 | 4 (remainder) | Business management | Business settings UI (opening hours, branding, etc.) — staff invites are done, see above |
-| 11 | Marketing | `apps.campaigns` — segments, templates, opt-in/messaging-window compliance |
 | 12 | Analytics | `apps.analytics` — funnel (conversation → lead → qualified → order → revenue), platform-level stats for super admin |
 | 13 | Billing/subscriptions | `apps.billing` — actually enforce `Plan` limits, `Subscription`, `UsageRecord`, `Invoice` |
 | 14 | Frontend polish | WhatsApp-style inbox, onboarding wizard, full dashboard pages |
@@ -323,8 +386,9 @@ code that doesn't exist yet just goes stale).
   except the one thing that requires real Meta credentials: a *valid*
   token. If `docker` CLI commands are needed for something else, the
   context is still broken and probably needs a Docker Desktop restart.
-- Rate limiting and file upload validation are designed for (settings/env
-  vars exist) but not implemented — see `docs/security.md`.
+- Rate limiting is designed for (`MAX_UPLOAD_SIZE_MB` etc. in settings)
+  but not implemented — see `docs/security.md`. File upload validation
+  was resolved in Phase 9 (`apps.knowledge`'s extension whitelist).
 - RBAC is the spec's 4 fixed roles, not a dynamic per-tenant
   role/permission-assignment engine. If a future phase needs
   MANAGER/STAFF to have differently-scoped permissions *within* their

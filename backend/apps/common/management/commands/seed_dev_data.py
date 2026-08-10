@@ -7,9 +7,11 @@ a Manager/Staff account for two of the three businesses, a couple of
 sample customers per business plus one seeded conversation with messages,
 a small product catalog per business, one confirmed sample order tying
 a seeded conversation to real product data, default AI settings (hybrid
-mode, human handoff on), and a couple of RAG knowledge base documents per
+mode, human handoff on), a couple of RAG knowledge base documents per
 business (processed synchronously, immediately usable without a Celery
-worker running). Later phases (campaigns, ...) extend this command as
+worker running), one customer per business opted in to marketing, and a
+sample MessageTemplate/Segment/draft Campaign per business (never
+auto-sent — see docs/campaigns.md). Later phases extend this command as
 those apps land — see docs/ROADMAP.md.
 
 All data is clearly fictional. Safe to re-run (idempotent by email/slug).
@@ -24,6 +26,7 @@ from django.utils import timezone
 from apps.accounts.models import User
 from apps.ai.models import AISettings
 from apps.businesses.models import Business
+from apps.campaigns.models import Campaign, MessageTemplate, Segment
 from apps.conversations.models import Conversation
 from apps.customers.models import Customer
 from apps.knowledge.models import KnowledgeDocument
@@ -57,6 +60,7 @@ SAMPLE_BUSINESSES = [
                 "phone": "+255700111001",
                 "status": Customer.Status.QUALIFIED,
                 "opening_message": "Hi, do you sell Samsung 55 inch TVs?",
+                "marketing_opt_in": True,
             },
             {"name": "Fatuma Ally", "phone": "+255700111002", "status": Customer.Status.NEW},
         ],
@@ -118,6 +122,7 @@ SAMPLE_BUSINESSES = [
                 "phone": "+254700222001",
                 "status": Customer.Status.CONTACTED,
                 "opening_message": "Is the red Ankara dress still available in size M?",
+                "marketing_opt_in": True,
             },
             {"name": "Peter Kamau", "phone": "+254700222002", "status": Customer.Status.NEW},
         ],
@@ -161,6 +166,7 @@ SAMPLE_BUSINESSES = [
                 "phone": "+256700333001",
                 "status": Customer.Status.NEW,
                 "opening_message": "Good morning, what's on today's menu?",
+                "marketing_opt_in": True,
             },
             {"name": "Betty Nakato", "phone": "+256700333002", "status": Customer.Status.NEW},
         ],
@@ -233,10 +239,14 @@ class Command(BaseCommand):
                     self._seed_knowledge_documents(
                         existing_owner.tenant, business, existing_owner, spec.get("knowledge", [])
                     )
+                    self._seed_customers_and_conversation(
+                        existing_owner.tenant, existing_owner, spec.get("customers", [])
+                    )
+                    self._seed_campaign_setup(existing_owner.tenant, business, existing_owner)
                 self.stdout.write(
                     self.style.WARNING(
                         f"{spec['business_name']}: owner already exists - skipping creation, "
-                        "backfilled AI settings + knowledge base."
+                        "backfilled AI settings + knowledge base + campaign setup."
                     )
                 )
                 continue
@@ -276,6 +286,7 @@ class Command(BaseCommand):
             )
             if customer and products:
                 self._seed_sample_order(tenant, owner, customer, conversation, products[0])
+            self._seed_campaign_setup(tenant, business, owner)
 
         self._report_totals()
 
@@ -349,6 +360,51 @@ class Command(BaseCommand):
                 self.style.SUCCESS(f"  + {len(knowledge_specs)} knowledge base documents")
             )
 
+    def _seed_campaign_setup(self, tenant, business, owner):
+        """
+        One sample MessageTemplate + Segment + draft Campaign per business,
+        illustrating the compliant-send data model without actually
+        sending anything (no seeded business has a connected WhatsApp
+        account, and this command never calls send_campaign — that's a
+        deliberate action a real user takes via POST .../send/, not
+        something seed data should do on its own). The template's
+        `status=approved` is a stand-in for a real Meta approval this
+        project has no credentials to obtain; see docs/campaigns.md.
+        """
+        template, _ = MessageTemplate.objects.get_or_create(
+            tenant=tenant,
+            business=business,
+            name="Weekly Promo",
+            defaults={
+                "created_by": owner,
+                "whatsapp_template_name": "weekly_promo_v1",
+                "category": MessageTemplate.Category.MARKETING,
+                "body_text": f"Hi {{{{1}}}}, {business.name} has a special offer for you this week!",
+                "status": MessageTemplate.Status.APPROVED,
+            },
+        )
+        segment, _ = Segment.objects.get_or_create(
+            tenant=tenant,
+            business=business,
+            name="Opted-in customers",
+            defaults={"created_by": owner, "filters": {}},
+        )
+        Campaign.objects.get_or_create(
+            tenant=tenant,
+            business=business,
+            name="Sample Weekly Promo Campaign",
+            defaults={
+                "created_by": owner,
+                "segment": segment,
+                "template": template,
+                "template_variables": ["there"],
+                "status": Campaign.Status.DRAFT,
+            },
+        )
+        self.stdout.write(
+            self.style.SUCCESS("  + campaign setup (1 template, 1 segment, 1 draft campaign)")
+        )
+
     def _seed_products(self, tenant, product_specs):
         """Sample catalog entries — enough variety to seed a sample order per business."""
         products = []
@@ -407,15 +463,25 @@ class Command(BaseCommand):
         first_conversation_created = False
         result = (None, None)
         for c_spec in customer_specs:
+            defaults = {
+                "name": c_spec["name"],
+                "status": c_spec["status"],
+                "source": Customer.Source.WHATSAPP,
+            }
+            if c_spec.get("marketing_opt_in"):
+                defaults["marketing_opt_in"] = True
+                defaults["marketing_opt_in_at"] = timezone.now()
             customer, created = Customer.objects.get_or_create(
                 tenant=tenant,
                 phone=c_spec["phone"],
-                defaults={
-                    "name": c_spec["name"],
-                    "status": c_spec["status"],
-                    "source": Customer.Source.WHATSAPP,
-                },
+                defaults=defaults,
             )
+            if not created and c_spec.get("marketing_opt_in") and not customer.marketing_opt_in:
+                # Backfill for a dev DB seeded before opt-in existed (Phase 11) —
+                # same "stay genuinely idempotent" reasoning as AI settings/knowledge.
+                customer.marketing_opt_in = True
+                customer.marketing_opt_in_at = timezone.now()
+                customer.save(update_fields=["marketing_opt_in", "marketing_opt_in_at"])
             if not created or first_conversation_created or "opening_message" not in c_spec:
                 continue
 
@@ -457,6 +523,8 @@ class Command(BaseCommand):
                 f"{Conversation.objects.count()} conversations, {Message.objects.count()} messages, "
                 f"{Product.objects.count()} products, {Order.objects.count()} orders, "
                 f"{AISettings.objects.count()} AI settings, "
-                f"{KnowledgeDocument.objects.count()} knowledge documents."
+                f"{KnowledgeDocument.objects.count()} knowledge documents, "
+                f"{MessageTemplate.objects.count()} templates, {Segment.objects.count()} segments, "
+                f"{Campaign.objects.count()} campaigns."
             )
         )

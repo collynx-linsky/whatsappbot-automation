@@ -32,6 +32,19 @@ class MessagingProvider(ABC):
     def send_text_message(self, *, to: str, text: str) -> SendResult:
         """Send a plain text message to `to` (provider-specific address format)."""
 
+    @abstractmethod
+    def send_template_message(
+        self, *, to: str, template_name: str, language_code: str, body_params: list[str]
+    ) -> SendResult:
+        """
+        Send a pre-approved template message — the only kind WhatsApp
+        allows a business to send *proactively* (outside a customer-
+        initiated 24-hour session window), which is exactly what a
+        marketing campaign send is. See apps.campaigns / docs/campaigns.md
+        for why this exists as a separate method from send_text_message
+        rather than campaigns just calling that with formatted text.
+        """
+
 
 class WhatsAppCloudProvider(MessagingProvider):
     """Thin client for the WhatsApp Cloud API (Meta Graph API)."""
@@ -71,6 +84,54 @@ class WhatsAppCloudProvider(MessagingProvider):
                 "message", f"HTTP {response.status_code}"
             )
             logger.warning("WhatsApp send failed (API): %s", error_message)
+            return SendResult(success=False, external_id=None, error=error_message)
+
+        messages = data.get("messages") or []
+        external_id = messages[0].get("id") if messages else None
+        return SendResult(success=True, external_id=external_id, error=None)
+
+    def send_template_message(
+        self, *, to: str, template_name: str, language_code: str, body_params: list[str]
+    ) -> SendResult:
+        url = f"{self.api_base_url}/{self.phone_number_id}/messages"
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/json",
+        }
+        components = []
+        if body_params:
+            components.append(
+                {
+                    "type": "body",
+                    "parameters": [{"type": "text", "text": param} for param in body_params],
+                }
+            )
+        payload = {
+            "messaging_product": "whatsapp",
+            "to": to,
+            "type": "template",
+            "template": {
+                "name": template_name,
+                "language": {"code": language_code},
+                "components": components,
+            },
+        }
+        try:
+            response = requests.post(url, headers=headers, json=payload, timeout=10)
+        except requests.RequestException as exc:
+            logger.warning("WhatsApp template send failed (network): %s", exc)
+            return SendResult(success=False, external_id=None, error=str(exc))
+
+        try:
+            data = response.json()
+        except ValueError:
+            data = {}
+
+        if response.status_code >= 400:
+            error_message = (data.get("error") or {}).get(
+                "message", f"HTTP {response.status_code}"
+            )
+            logger.warning("WhatsApp template send failed (API): %s", error_message)
             return SendResult(success=False, external_id=None, error=error_message)
 
         messages = data.get("messages") or []

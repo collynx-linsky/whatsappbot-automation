@@ -182,8 +182,29 @@ See `docs/rag.md` for the full extract/chunk/embed/retrieve flow.
 | DELETE | `documents/<uuid:pk>/` | manager+ | 404 if in another tenant. |
 | GET | `documents/<uuid:pk>/chunks/` | staff+ | What was actually indexed from this document — `is_embedded` per chunk. |
 
+## Campaigns — `/api/v1/campaigns/`
+
+See `docs/campaigns.md` for the full compliance model (opt-in enforcement,
+template-only proactive sends).
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `templates/` | staff+ | Message templates in the caller's own tenant. |
+| POST | `templates/` | manager+ | `{business, name, body_text, category?, language_code?}`. Created `status=draft`. |
+| GET | `templates/<uuid:pk>/` | staff+ | 404 if in another tenant. |
+| PATCH | `templates/<uuid:pk>/` | manager+ | Includes `status`/`whatsapp_template_name`/`rejection_reason` — Meta approval happens outside this system; a manager records the outcome here manually. |
+| GET | `segments/` | staff+ | Segments in the caller's own tenant, `customer_count` computed live on every read. |
+| POST | `segments/` | manager+ | `{business, name, filters?}` — `filters` keys: `statuses`/`sources`/`tags` (lists, any-match); unknown keys rejected with `400`. |
+| GET / PATCH / DELETE | `segments/<uuid:pk>/` | staff+ / manager+ / manager+ | 404 if in another tenant. |
+| GET | `segments/<uuid:pk>/preview/` | staff+ | `{customer_count, sample: [{id, name, phone}, ...]}` — no side effects, doesn't create a campaign. |
+| GET | `` | staff+ | Campaigns in the caller's own tenant. Filter: `?status=`. |
+| POST | `` | manager+ | `{business, segment, template, name, template_variables?}` — `segment`/`template` must belong to `business`, checked explicitly (`400` otherwise). Created `status=draft`. |
+| GET / PATCH | `<uuid:pk>/` | staff+ / manager+ | Status/counts are server-computed, not client-writable. |
+| POST | `<uuid:pk>/send/` | manager+ | Only from `draft`/`scheduled` (`400` otherwise). Queues `send_campaign_task` (`low_priority` queue) and returns the campaign with `status=scheduled` — or whatever the task already resolved it to, if it ran synchronously (e.g. under `CELERY_TASK_ALWAYS_EAGER`). |
+| GET | `<uuid:pk>/recipients/` | staff+ | Per-customer send outcome: `status`, `skip_reason`, `error_message`, `sent_at`. |
+
 ## Not built yet
 
 Every other `/api/v1/<domain>/` path listed in the master spec
-(`campaigns/`, `analytics/`, `notifications/`, `billing/`, `audit/`) is
-not implemented — see `docs/ROADMAP.md` for which phase builds each one.
+(`analytics/`, `notifications/`, `billing/`, `audit/`) is not
+implemented — see `docs/ROADMAP.md` for which phase builds each one.

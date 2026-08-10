@@ -19,6 +19,7 @@ class Message(BaseModel):
         STAFF = "staff", "Staff"
         AI = "ai", "AI Assistant"
         SYSTEM = "system", "System"
+        CAMPAIGN = "campaign", "Campaign"
 
     class Direction(models.TextChoices):
         INBOUND = "inbound", "Inbound"

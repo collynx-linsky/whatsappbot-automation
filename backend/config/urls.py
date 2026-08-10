@@ -20,6 +20,7 @@ api_v1_patterns = [
     path("orders/", include("apps.orders.urls")),
     path("ai/", include("apps.ai.urls")),
     path("knowledge/", include("apps.knowledge.urls")),
+    path("campaigns/", include("apps.campaigns.urls")),
 ]
 
 

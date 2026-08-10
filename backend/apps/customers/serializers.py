@@ -1,5 +1,6 @@
 """WhatsAppBusinessAI — Customers Serializers"""
 
+from django.utils import timezone
 from rest_framework import serializers
 
 from .models import Customer
@@ -19,11 +20,20 @@ class CustomerSerializer(serializers.ModelSerializer):
             "source",
             "status",
             "notes",
+            "marketing_opt_in",
+            "marketing_opt_in_at",
             "last_interaction_at",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "tenant", "last_interaction_at", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "tenant",
+            "marketing_opt_in_at",
+            "last_interaction_at",
+            "created_at",
+            "updated_at",
+        ]
 
     def validate_phone(self, phone):
         """
@@ -44,3 +54,17 @@ class CustomerSerializer(serializers.ModelSerializer):
                     "A customer with this phone number already exists."
                 )
         return phone
+
+    def _stamp_opt_in(self, validated_data):
+        """`marketing_opt_in_at` records *when* consent was given — real
+        compliance evidence, not just a boolean. Re-stamped every time the
+        flag is (re)set to True; left untouched on any other update."""
+        if validated_data.get("marketing_opt_in") is True:
+            validated_data["marketing_opt_in_at"] = timezone.now()
+        return validated_data
+
+    def create(self, validated_data):
+        return super().create(self._stamp_opt_in(validated_data))
+
+    def update(self, instance, validated_data):
+        return super().update(instance, self._stamp_opt_in(validated_data))

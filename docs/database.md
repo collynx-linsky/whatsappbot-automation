@@ -65,7 +65,11 @@ CRM contact per spec sections 7/15: `name`, `phone`, `email`, `location`,
 `new|contacted|qualified|proposal|converted|lost`), `notes`,
 `last_interaction_at`. `(tenant, phone)` is a unique constraint — the same
 phone number can exist across different tenants, never twice within one.
-Inherits `core.models.BaseModel`.
+`marketing_opt_in` (default `False` — opt-in, not opt-out, per WhatsApp
+Business policy) + `marketing_opt_in_at` (stamped by the serializer
+whenever the flag is set `True`, real consent-timing evidence rather than
+just a boolean) added in Phase 11; see `docs/campaigns.md`. Inherits
+`core.models.BaseModel`.
 
 ### `conversations.Conversation` / `ConversationAssignment`
 `Conversation` per spec section 8, scoped down for this phase: exactly one
@@ -138,6 +142,29 @@ project's Postgres instance**, so retrieval does pure-Python cosine
 similarity rather than a vector index; see `docs/rag.md` for the
 documented upgrade path), `embedding_model` (blank if never embedded).
 Unique `(document, chunk_index)`. Both inherit `core.models.BaseModel`.
+
+### `campaigns.MessageTemplate` / `Segment` / `Campaign` / `CampaignRecipient`
+Marketing campaigns (spec sections 12, 26) — see `docs/campaigns.md` for
+the full compliance model. `MessageTemplate`: `business`, `name`,
+`whatsapp_template_name` (blank until submitted to Meta), `category`
+(`marketing|utility|authentication`), `language_code`, `body_text`
+(`{{1}}`-style placeholders), `status`
+(`draft|pending_approval|approved|rejected` — **set manually**, no real
+Meta Template API access this session), `rejection_reason`;
+`variable_count` is a computed property, not a stored field. `Segment`:
+`business`, `name`, `description`, `filters` (JSON — `statuses`/`sources`/
+`tags`, any-match lists; empty matches every opted-in customer).
+`Campaign`: `business`, `segment` (FK, `PROTECT`), `template` (FK,
+`PROTECT`), `template_variables` (JSON list, applied to every recipient —
+no per-recipient personalization yet), `status`
+(`draft|scheduled|sending|sent|failed|cancelled`), `scheduled_at`,
+`started_at`, `completed_at`, `error_message`,
+`recipient_count`/`sent_count`/`failed_count`/`skipped_count`.
+`CampaignRecipient`: `campaign` (FK), `customer` (FK), `message`
+(`OneToOneField` to `messaging.Message`, nullable), `status`
+(`pending|sent|failed|skipped`), `skip_reason`, `error_message`,
+`sent_at`; unique `(campaign, customer)`. All four inherit
+`core.models.BaseModel`.
 
 ### `products.Product`
 Fields per spec section 13: `name`, `sku` (optional — `(tenant, sku)`

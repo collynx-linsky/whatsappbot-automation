@@ -68,11 +68,26 @@ response, proven by testing the actual rendered response body.
   (authenticated, but an unthrottled loop against it would burn a real
   provider's API quota/cost once `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` is
   set — see `docs/ai.md`). Also applies to `/api/v1/knowledge/documents/`
-  (POST) once embedding calls are live — an unthrottled loop uploading
-  documents burns the same real quota. Flagged in `docs/ROADMAP.md` as
-  Phase 15 work.
+  (POST) once embedding calls are live, and `/api/v1/campaigns/{id}/send/`
+  — an unthrottled loop against either burns real provider quota/cost or
+  spams real WhatsApp customers. Flagged in `docs/ROADMAP.md` as Phase 15
+  work.
 - No "test the connection" call when a WhatsApp account is connected — a
   wrong/expired access token isn't caught until the first real send fails.
+
+## Marketing compliance (spec sections 12, 26)
+
+See `docs/campaigns.md` for the full picture. Summary: `Customer.marketing_opt_in`
+defaults to `False` (opt-in, not opt-out) and is never set implicitly —
+starting a WhatsApp conversation does not opt a customer into marketing.
+`apps.campaigns.services.get_segment_customers` filters to
+`marketing_opt_in=True` unconditionally (not an optional filter a segment
+could omit), and `send_campaign` re-checks it a second time per recipient
+at actual send time, since a customer can opt out between when a campaign
+was scheduled and when it sends. Proactive sends always use
+`WhatsAppCloudProvider.send_template_message` (a pre-approved template),
+never `send_text_message` — the two are structurally separate provider
+methods so a campaign send can't accidentally take the free-text path.
 
 **Resolved this session**: file upload validation — `apps.knowledge`'s
 `POST /api/v1/knowledge/documents/` rejects any file extension outside
