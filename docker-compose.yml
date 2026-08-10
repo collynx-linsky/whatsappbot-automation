@@ -75,7 +75,7 @@ services:
       dockerfile: Dockerfile
     container_name: waba_celery_worker
     restart: unless-stopped
-    command: celery -A config.celery worker --loglevel=info --concurrency=4
+    command: celery -A config.celery worker --loglevel=info --concurrency=4 -Q default,high_priority,low_priority
     volumes:
       - ./backend:/app
       - log_files:/app/logs

@@ -21,3 +21,5 @@ django-celery-results==2.5.1
 # Utilities
 Pillow==12.3.0
 python-slugify==8.0.4
+requests==2.32.3
+cryptography==43.0.3

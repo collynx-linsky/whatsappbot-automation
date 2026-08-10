@@ -27,7 +27,11 @@ class MessageListCreateView(TenantScopedQuerysetMixin, generics.ListCreateAPIVie
             tenant=self.request.user.tenant,
             sender_user=self.request.user,
             direction=Message.Direction.OUTBOUND,
-            status=Message.Status.SENT,
+            # PENDING until actually delivered — apps.whatsapp (if
+            # installed and a provider is connected) picks this up via a
+            # signal and updates it to SENT/FAILED. Messages apps itself
+            # has no idea WhatsApp exists; see apps/whatsapp/signals.py.
+            status=Message.Status.PENDING,
         )
         conversation.record_message(message)
 

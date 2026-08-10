@@ -47,18 +47,32 @@
   hardcoded in source, and `.env` is gitignored. `.env.example` documents
   every key with placeholder values.
 
+## WhatsApp webhook security
+
+See `docs/whatsapp.md` for the full picture. Summary: every webhook `POST`
+requires a valid `X-Hub-Signature-256` (HMAC-SHA256 of the raw body,
+`WHATSAPP_APP_SECRET`, constant-time compared) — fails **closed** if the
+secret isn't configured, rather than accepting unsigned traffic. Per-tenant
+WhatsApp access tokens are encrypted at rest (`core.crypto`, Fernet/AES,
+key from `WHATSAPP_TOKEN_ENCRYPTION_KEY`) and never included in any API
+response, proven by testing the actual rendered response body.
+
 ## Secrets not yet implemented (flagged honestly)
 
-- WhatsApp access tokens and AI provider API keys are read from `.env` into
-  settings (`WHATSAPP_ACCESS_TOKEN`, `OPENAI_API_KEY`, etc.) but there's no
-  `WhatsAppAccount` model yet to store *per-tenant* credentials — that
-  lands in Phase 7 and per the spec must be encrypted at rest / never
-  exposed via any API response.
+- AI provider API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) are read
+  into settings but nothing calls out to them yet — Phase 8.
 - Rate limiting architecture (DRF throttle classes) is not wired up this
-  phase — `REST_FRAMEWORK` has no `DEFAULT_THROTTLE_CLASSES` yet. Flagged
-  in `docs/ROADMAP.md`.
+  phase — `REST_FRAMEWORK` has no `DEFAULT_THROTTLE_CLASSES` yet. This
+  matters more now that there's a public, unauthenticated webhook endpoint
+  (`/api/v1/whatsapp/webhook/`) — it's protected by signature verification,
+  not rate limiting, so a flood of *correctly signed* requests (only
+  possible by someone with the app secret) or repeated failed-signature
+  probing isn't throttled. Flagged in `docs/ROADMAP.md`.
 - File upload validation (type/size checks beyond `MAX_UPLOAD_SIZE_MB`)
-  lands with `apps.knowledge` (document uploads, Phase 9).
+  lands with `apps.knowledge` (document uploads, Phase 9) and
+  `MessageAttachment` (already modeled, no upload endpoint yet).
+- No "test the connection" call when a WhatsApp account is connected — a
+  wrong/expired access token isn't caught until the first real send fails.
 
 ## Audit logging
 
@@ -79,3 +93,7 @@ section 19), not per-app optional.
 - Account lockout after 5 real failed `curl` login attempts.
 - CORS preflight from `http://localhost:3000` to the live API returns the
   correct `access-control-allow-*` headers.
+- A simulated WhatsApp webhook payload with a correctly-computed HMAC
+  signature processed end-to-end against the live server; wrong/missing
+  signatures rejected with `403`; a duplicate delivery of the same event
+  proven idempotent (no duplicate message).

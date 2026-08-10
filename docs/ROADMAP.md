@@ -59,9 +59,43 @@ Corresponds to spec Phase 5 + Phase 6, bundled:
   clear 400; (3) two test assertions compared a UUID object to a string
   (`resp.data["tenant"]` is a UUID, not a str, before JSON rendering).
 
+## Done (this session — "WhatsApp Integration")
+
+Corresponds to spec Phase 7:
+
+- Models: `whatsapp.WhatsAppAccount` (per-business credentials, access
+  token encrypted at rest via `core.crypto`/Fernet), `whatsapp.MessageEvent`
+  (webhook idempotency log, deferred from the CRM/Conversations phase).
+- `apps.whatsapp.providers`: `MessagingProvider` interface +
+  `WhatsAppCloudProvider` concrete implementation (spec section 38) —
+  `apps.messages`/`apps.conversations` have zero import of `apps.whatsapp`;
+  the connection is one-directional via a `Message.post_save` signal.
+- Inbound flow: signed webhook → `parse_webhook_payload` → resolve
+  `WhatsAppAccount` by `phone_number_id` → tenant → get-or-create Customer
+  → get-or-create open Conversation → create Message, idempotent per
+  `(account, wamid)`.
+- Outbound flow: staff `POST /api/v1/messages/` → `PENDING` → Celery task
+  (`high_priority` queue) → `WhatsAppCloudProvider.send_text_message` →
+  `SENT`/`FAILED`. **Fixed a real gap while wiring this**: neither
+  `scripts/start.ps1` nor `docker-compose.yml`'s celery_worker command
+  listened to non-default queues — tasks routed to `high_priority` would
+  have silently never run. Both now pass `-Q default,high_priority,low_priority`.
+- Security: `X-Hub-Signature-256` HMAC verification (fails closed if
+  `WHATSAPP_APP_SECRET` unset), access tokens never returned by the API
+  (checked against the actual rendered response body, not pre-render data).
+- API: `/api/v1/whatsapp/accounts/` (manager+), `/api/v1/whatsapp/webhook/`
+  (public, signature-protected).
+- 17 new passing tests (55 total) against a hand-built payload matching
+  WhatsApp Cloud API's real webhook JSON shape — proves the full pipeline
+  without needing real Meta credentials (none were available this
+  session). **Also verified live** end-to-end against a real Redis broker,
+  a real Celery worker process, and a real (rejected) call to Meta's Graph
+  API — see the resolved gap below and `docs/whatsapp.md`.
+- `docs/whatsapp.md` (new).
+
 ## Not built yet — placeholder app directories only
 
-`backend/apps/{whatsapp,ai,knowledge,products,orders,campaigns,analytics,
+`backend/apps/{ai,knowledge,products,orders,campaigns,analytics,
 notifications,billing,audit}/` exist as empty Python packages (just
 `__init__.py`), not registered in `INSTALLED_APPS`, no models/views. They
 map to the spec's remaining phases:
@@ -69,8 +103,7 @@ map to the spec's remaining phases:
 | Phase | Spec # | Builds |
 |---|---|---|
 | 4 | Business management | Staff invites/roles-within-tenant, business settings UI |
-| 7 | WhatsApp integration | `apps.whatsapp` — WhatsAppAccount (encrypted credentials), webhook receiver, idempotent event processing, `MessagingProvider` interface. Writes into the `customers`/`conversations`/`messaging` models built this session. |
-| 8 | AI engine | `apps.ai` — AISettings, `AIProvider` interface (OpenAI/Anthropic), human handoff (AI/HUMAN/HYBRID modes) |
+| 8 | AI engine | `apps.ai` — AISettings, `AIProvider` interface (OpenAI/Anthropic), human handoff (AI/HUMAN/HYBRID modes). `Conversation.ai_enabled` already exists and is unread by anything yet. |
 | 9 | RAG knowledge base | `apps.knowledge` — KnowledgeDocument/Chunk/Embedding, upload → chunk → embed → retrieve pipeline, pgvector |
 | 10 | Products & orders | `apps.products`, `apps.orders` |
 | 11 | Marketing | `apps.campaigns` — segments, templates, opt-in/messaging-window compliance |
@@ -80,22 +113,30 @@ map to the spec's remaining phases:
 | 15 | Testing/security | Broader test coverage, rate limiting, file upload validation |
 | 16 | Docker/deployment | Production Dockerfiles, CI, real deployment target |
 
-Also not yet started: `docs/whatsapp.md`, `docs/ai.md`, `docs/rag.md`,
-`docs/deployment.md`, `docs/troubleshooting.md` — write these when their
-corresponding phase lands, not before (a doc for code that doesn't exist
-yet just goes stale).
+Also not yet started: `docs/ai.md`, `docs/rag.md`, `docs/deployment.md`,
+`docs/troubleshooting.md` — write these when their corresponding phase
+lands, not before (a doc for code that doesn't exist yet just goes stale).
 
 ## Known gaps flagged honestly (not silently deferred)
 
-- **Redis was never verified live this session** — Docker Desktop stayed
-  down (cold-start) for the entire session despite being confirmed working
-  at the very start. `docker-compose.yml`'s `redis` service and the Celery
-  wiring are written and should work, but nobody has actually run
-  `docker compose up -d redis` + a live Celery task against this checkout
-  yet. Do that before relying on it.
-- Rate limiting, per-tenant WhatsApp credential encryption, and file upload
-  validation are designed for (settings/env vars exist) but not implemented
-  — see `docs/security.md`.
+- ~~Redis/Celery never verified against a real broker~~ — **resolved this
+  session.** `docker info`/the `docker` CLI stayed broken (stale named-pipe
+  context) all session, but a Redis 7.2.12 instance was found genuinely
+  listening on `localhost:6379` anyway (almost certainly a container still
+  running under Docker Desktop's WSL2 backend, orphaned from the CLI's
+  perspective) — confirmed via a raw `PING`, then used for real: started an
+  actual `celery worker` process against it (`-Q default,high_priority,low_priority`,
+  confirming the queue-routing fix), posted a real staff reply through the
+  live API, and watched the worker pick up `send_whatsapp_message_task`
+  from the real queue, decrypt the stored token, and **call the real Meta
+  Graph API** (`graph.facebook.com`) — which correctly rejected the
+  dev-only fake access token ("Invalid OAuth access token"), and the task
+  correctly marked the message `FAILED`. This proves the entire pipeline
+  except the one thing that requires real Meta credentials: a *valid*
+  token. If `docker` CLI commands are needed for something else, the
+  context is still broken and probably needs a Docker Desktop restart.
+- Rate limiting and file upload validation are designed for (settings/env
+  vars exist) but not implemented — see `docs/security.md`.
 - RBAC is the spec's 4 fixed roles, not a dynamic per-tenant
   role/permission-assignment engine. If a future phase needs
   MANAGER/STAFF to have differently-scoped permissions *within* their
@@ -108,7 +149,10 @@ yet just goes stale).
 - Tags (`Customer.tags`, `Conversation.tags`) are a plain JSON list of
   strings, not a normalized `Tag` model — no cross-tenant tag taxonomy,
   autocomplete, or tag-based analytics yet.
-- `POST /api/v1/messages/` only accepts `sender_type=staff` — there's no
-  way to simulate an inbound customer message via the API (only via
-  `seed_dev_data` writing directly to the ORM). That's intentional until
-  Phase 7's webhook is the real source of inbound messages.
+- `POST /api/v1/messages/` still only accepts `sender_type=staff` — inbound
+  customer messages now do have a real source (`POST /api/v1/whatsapp/webhook/`,
+  see `docs/whatsapp.md`), so this is no longer a placeholder restriction,
+  it's the actual intended design: customers don't call the REST API.
+- WhatsApp integration limitations (media messages, delivery/read
+  receipts, no connection test) are listed in `docs/whatsapp.md` rather
+  than duplicated here.

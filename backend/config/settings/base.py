@@ -54,6 +54,7 @@ LOCAL_APPS = [
     "apps.customers",
     "apps.conversations",
     "apps.messages",
+    "apps.whatsapp",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -211,8 +212,13 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = env("CELERY_TIMEZONE", default="Africa/Nairobi")
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
+# Explicit per Celery 6.0's deprecation of the old broker_connection_retry
+# default — we do want startup retries (e.g. broker briefly unreachable
+# while Docker Desktop is still warming up).
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_TASK_ROUTES = {
-    # Populated as background-processing-heavy apps (whatsapp, ai, knowledge,
+    "apps.whatsapp.tasks.*": {"queue": "high_priority"},
+    # More routes added as background-processing-heavy apps (ai, knowledge,
     # campaigns) land in later phases.
 }
 
@@ -250,12 +256,20 @@ OPENAI_API_KEY = env("OPENAI_API_KEY", default="")
 ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY", default="")
 DEFAULT_AI_PROVIDER = env("DEFAULT_AI_PROVIDER", default="openai")
 
-# ── WhatsApp Cloud API ──────────────────────────────────────────
-# Real usage lands in apps.whatsapp (Phase 7).
-WHATSAPP_ACCESS_TOKEN = env("WHATSAPP_ACCESS_TOKEN", default="")
+# ── WhatsApp Cloud API (apps.whatsapp) ──────────────────────────
+# Per-business credentials (phone_number_id, access_token, ...) live
+# encrypted in apps.whatsapp.WhatsAppAccount, NOT here — a business
+# connects its own number via the API. What IS platform-level (configured
+# once, in your Meta App dashboard, shared by every business's webhook
+# traffic under that App):
 WHATSAPP_VERIFY_TOKEN = env("WHATSAPP_VERIFY_TOKEN", default="")
-WHATSAPP_PHONE_NUMBER_ID = env("WHATSAPP_PHONE_NUMBER_ID", default="")
-WHATSAPP_BUSINESS_ACCOUNT_ID = env("WHATSAPP_BUSINESS_ACCOUNT_ID", default="")
+WHATSAPP_APP_SECRET = env("WHATSAPP_APP_SECRET", default="")
+WHATSAPP_GRAPH_API_BASE_URL = env(
+    "WHATSAPP_GRAPH_API_BASE_URL", default="https://graph.facebook.com/v21.0"
+)
+# Fernet key encrypting WhatsAppAccount.access_token at rest — generate
+# with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
+WHATSAPP_TOKEN_ENCRYPTION_KEY = env("WHATSAPP_TOKEN_ENCRYPTION_KEY", default="")
 
 # ── Object Storage (optional — local disk by default) ──────────
 USE_S3 = env.bool("USE_S3", default=False)
@@ -288,6 +302,7 @@ SPECTACULAR_SETTINGS = {
         {"name": "customers", "description": "Customer CRM"},
         {"name": "conversations", "description": "Conversations & staff assignment"},
         {"name": "messaging", "description": "Messages & attachments"},
+        {"name": "whatsapp", "description": "WhatsApp account connection & webhook"},
     ],
 }
 

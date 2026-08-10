@@ -105,9 +105,21 @@ List endpoints are paginated (`core.pagination.StandardResultsPagination`,
 | POST | `` | `{"conversation": "<uuid>", "sender_type": "staff", "content": "..."}`. Only `sender_type=staff` is accepted this phase — customer/AI messages arrive via the not-yet-built WhatsApp webhook / AI engine. `direction`, `sender_user`, and `status` are always server-derived. Posting updates the parent conversation's `last_message_preview`/`last_message_at`/`unread_count` automatically. |
 | GET | `<uuid:pk>/` | 404 if it belongs to another tenant. |
 
+## WhatsApp — `/api/v1/whatsapp/`
+
+See `docs/whatsapp.md` for the full inbound/outbound flow and security model.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `accounts/` | manager+ | List WhatsApp accounts in the caller's own tenant. `access_token` is never included in the response. |
+| POST | `accounts/` | manager+ | Connect a number: `{business, phone_number, phone_number_id, business_account_id, access_token}`. `business` must belong to the caller's own tenant. |
+| GET / PATCH | `accounts/<uuid:pk>/` | manager+ | 404 if it belongs to another tenant. |
+| GET | `webhook/` | none (Meta) | Subscription verification handshake — `?hub.mode=subscribe&hub.verify_token=...&hub.challenge=...`. |
+| POST | `webhook/` | none (Meta) | Inbound message/status events. Requires a valid `X-Hub-Signature-256` header (HMAC-SHA256 of the raw body, `WHATSAPP_APP_SECRET`) — unsigned or wrongly-signed requests get `403`. Idempotent per WhatsApp message id. |
+
 ## Not built yet
 
 Every other `/api/v1/<domain>/` path listed in the master spec
-(`whatsapp/`, `ai/`, `knowledge/`, `products/`, `orders/`, `campaigns/`,
+(`ai/`, `knowledge/`, `products/`, `orders/`, `campaigns/`,
 `analytics/`, `notifications/`, `billing/`, `audit/`) is not implemented —
 see `docs/ROADMAP.md` for which phase builds each one.

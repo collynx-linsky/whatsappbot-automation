@@ -75,16 +75,27 @@ distinct from `django.contrib.messages` (already installed) or Django's
 app registry would crash on startup. Fields per spec section 8:
 `sender_type` (`customer|staff|ai|system`), `sender_user` (FK, staff only),
 `direction` (`inbound|outbound`), `message_type`, `content`, `status`,
-`external_message_id` (blank for now — reserved for Phase 7's webhook
-dedup, unique per tenant when set). `MessageEvent` (the webhook delivery
-dedup log) is deliberately not built yet — it only makes sense once
-there's a real webhook to dedupe. Both inherit `core.models.BaseModel`.
+`external_message_id` (WhatsApp's `wamid.*`, populated by the webhook for
+inbound / by the send task for outbound, unique per tenant when set). Both
+inherit `core.models.BaseModel`.
 
-**Note on message creation this phase**: since there's no real
-WhatsApp/AI integration yet, `POST /api/v1/messages/` only accepts
-`sender_type=staff` — it's the manual/testing surface for now, not a
-general-purpose message-creation endpoint. `direction` and `sender_user`
+**Note on message creation via the API**: `POST /api/v1/messages/` only
+accepts `sender_type=staff` — customer messages arrive via the WhatsApp
+webhook (`apps.whatsapp`), not this endpoint. `direction` and `sender_user`
 are always server-derived, never client input.
+
+### `whatsapp.WhatsAppAccount` / `MessageEvent`
+Per-business WhatsApp Cloud API connection (spec section 7):
+`business` (FK), `phone_number`, `phone_number_id` (unique — Meta's ID,
+used to resolve inbound webhooks to a tenant), `business_account_id`,
+`access_token_encrypted` (Fernet/AES via `core.crypto`, accessed only
+through the `.access_token` property, never serialized), `status`
+(`pending|connected|disconnected|error`), `connected_at`, `last_sync_at`,
+`last_error`. `MessageEvent` is the webhook idempotency log deferred from
+the Customer CRM phase — one row per `(whatsapp_account, external_event_id)`
+actually processed; Meta redelivers webhooks on timeout, and without this
+a retry would create a duplicate `Message`. Both inherit
+`core.models.BaseModel`. See `docs/whatsapp.md` for the full flow.
 
 ## Base model layer (`backend/core/models.py`)
 
@@ -139,6 +150,10 @@ venv). No manual SQL — all schema changes go through migrations.
   `(tenant, assigned_to)`
 - `Message`: composite index on `(tenant, conversation, created_at)`;
   unique `(tenant, external_message_id)` when `external_message_id` is set
+- `WhatsAppAccount`: unique `phone_number_id`; composite index on
+  `(tenant, status)`
+- `MessageEvent`: unique `(whatsapp_account, external_event_id)` — the
+  webhook idempotency guard
 
 ## Local database credentials (this machine)
 
