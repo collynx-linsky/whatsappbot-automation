@@ -95,3 +95,28 @@ export interface ApiErrorEnvelope {
   errors: Record<string, string[]>;
   code: string;
 }
+
+export interface StaffMember {
+  id: string;
+  email: string;
+  phone: string;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  role: Role;
+  is_active: boolean;
+  date_joined: string;
+}
+
+export interface CreateStaffPayload {
+  email: string;
+  first_name: string;
+  last_name?: string;
+  phone?: string;
+  role: "manager" | "staff";
+}
+
+export interface CreateStaffResponse {
+  user: StaffMember;
+  temporary_password: string;
+}

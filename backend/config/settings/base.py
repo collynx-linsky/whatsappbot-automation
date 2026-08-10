@@ -299,6 +299,7 @@ SPECTACULAR_SETTINGS = {
             "description": "Platform tenant & plan management (super admin)",
         },
         {"name": "businesses", "description": "Business profile management"},
+        {"name": "staff", "description": "Staff/manager account management within a tenant"},
         {"name": "customers", "description": "Customer CRM"},
         {"name": "conversations", "description": "Conversations & staff assignment"},
         {"name": "messaging", "description": "Messages & attachments"},

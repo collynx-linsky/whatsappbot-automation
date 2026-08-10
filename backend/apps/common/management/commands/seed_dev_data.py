@@ -3,11 +3,10 @@
 
 Creates sample development data (spec section 30) scoped to what this
 phase actually builds: default Plans, sample tenants + businesses + owners,
-and — as of the Customer CRM + Conversations phase — a couple of sample
-customers per business plus one seeded conversation with messages, so
-there's something to look at before the WhatsApp webhook (Phase 7) is
-wired in. Later phases (products, orders, ...) extend this command as
-those apps land — see docs/ROADMAP.md.
+a Manager/Staff account for two of the three businesses (Staff Management
+phase), and a couple of sample customers per business plus one seeded
+conversation with messages. Later phases (products, orders, ...) extend
+this command as those apps land — see docs/ROADMAP.md.
 
 All data is clearly fictional. Safe to re-run (idempotent by email/slug).
 """
@@ -32,6 +31,14 @@ SAMPLE_BUSINESSES = [
         "owner_email": "owner@abcelectronics.test",
         "owner_first_name": "Amina",
         "owner_last_name": "Juma",
+        "staff": [
+            {
+                "email": "staff@abcelectronics.test",
+                "first_name": "Baraka",
+                "last_name": "Mnyonge",
+                "role": User.Role.STAFF,
+            },
+        ],
         "customers": [
             {
                 "name": "John Mushi",
@@ -51,6 +58,14 @@ SAMPLE_BUSINESSES = [
         "owner_email": "owner@mambofashion.test",
         "owner_first_name": "David",
         "owner_last_name": "Otieno",
+        "staff": [
+            {
+                "email": "manager@mambofashion.test",
+                "first_name": "Wanjiku",
+                "last_name": "Mwangi",
+                "role": User.Role.MANAGER,
+            },
+        ],
         "customers": [
             {
                 "name": "Grace Wanjiru",
@@ -155,6 +170,7 @@ class Command(BaseCommand):
                     f"owner={spec['owner_email']} / {DEV_PASSWORD})"
                 )
             )
+            self._seed_staff(tenant, spec.get("staff", []))
             self._seed_customers_and_conversation(tenant, owner, spec.get("customers", []))
 
         self._report_totals()
@@ -164,6 +180,23 @@ class Command(BaseCommand):
                 "\nSeed complete. All sample owner accounts use the password: " f"{DEV_PASSWORD}"
             )
         )
+
+    def _seed_staff(self, tenant, staff_specs):
+        """Sample Manager/Staff accounts, demonstrating the staff-management API's seed data."""
+        for s_spec in staff_specs:
+            if User.objects.filter(email__iexact=s_spec["email"]).exists():
+                continue
+            User.objects.create_user(
+                email=s_spec["email"],
+                password=DEV_PASSWORD,
+                first_name=s_spec["first_name"],
+                last_name=s_spec.get("last_name", ""),
+                role=s_spec["role"],
+                tenant=tenant,
+            )
+            self.stdout.write(
+                self.style.SUCCESS(f"  + {s_spec['role']}: {s_spec['email']} / {DEV_PASSWORD}")
+            )
 
     def _seed_customers_and_conversation(self, tenant, owner, customer_specs):
         """
@@ -217,7 +250,7 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS(
                 f"Totals: {Tenant.objects.count()} tenants, {Business.objects.count()} businesses, "
-                f"{Customer.objects.count()} customers, {Conversation.objects.count()} conversations, "
-                f"{Message.objects.count()} messages."
+                f"{User.objects.count()} users, {Customer.objects.count()} customers, "
+                f"{Conversation.objects.count()} conversations, {Message.objects.count()} messages."
             )
         )

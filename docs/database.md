@@ -39,6 +39,17 @@ Also carries account-lockout bookkeeping (`failed_login_attempts`,
 `locked_until` — 5 failures locks for 30 minutes) and
 `accounts.PasswordResetToken` for the forgot/reset-password flow.
 
+**Staff management** (`/api/v1/staff/`, spec section 6's "Business Owner can manage
+staff") adds no new model — it's CRUD on `accounts.User` scoped to the
+caller's own tenant, restricted to creating/editing `manager`/`staff`
+roles only. Rules enforced server-side, not just at the serializer layer:
+a business owner can never create another `business_owner` or
+`super_admin` this way; `PATCH` can't target the business owner record
+itself or the caller's own account (no self-service role change, no
+self-lockout); a super admin (`tenant=None`) is rejected with a clear 400
+on create rather than hitting the `super_admin_has_no_tenant`-adjacent
+`NOT NULL` on `tenant` for the new user.
+
 ### `common.AuditLog`
 Platform-wide audit trail (spec section 19): `tenant`, `user`, `action`
 (free-text code, e.g. `USER_CREATED`, `BUSINESS_ONBOARDED`,

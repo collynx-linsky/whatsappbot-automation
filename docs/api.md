@@ -44,6 +44,19 @@ List endpoints are paginated (`core.pagination.StandardResultsPagination`,
 | POST | `forgot-password/` | none | `{email}` → always 200; emails a reset link (console backend in dev). |
 | POST | `reset-password/` | none | `{token, new_password}`. |
 
+## Staff — `/api/v1/staff/`
+
+Team roster for the caller's own tenant. Separate from `/auth/` — this is
+user *management*, not login. See `docs/database.md` for the role rules
+enforced.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `` | staff+ | Team roster (owner + manager + staff) for the caller's own tenant. |
+| POST | `` | business owner | `{email, first_name, last_name?, phone?, role}` — `role` must be `manager` or `staff` (never `business_owner`/`super_admin`). Generates a temporary password, emails it, returns it once. |
+| GET | `<uuid:pk>/` | staff+ | 404 if in another tenant. |
+| PATCH | `<uuid:pk>/` | business owner | Edit role/`is_active`/profile fields. Cannot target the business owner or the caller's own account (400) — self-service role changes and self-lockout aren't possible via this endpoint. |
+
 ## Tenants — `/api/v1/tenants/` (super admin only, except `plans/` GET)
 
 | Method | Path | Notes |

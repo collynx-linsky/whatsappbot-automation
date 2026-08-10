@@ -93,6 +93,35 @@ Corresponds to spec Phase 7:
   API — see the resolved gap below and `docs/whatsapp.md`.
 - `docs/whatsapp.md` (new).
 
+## Done (this session — "Staff Management")
+
+Corresponds to spec Phase 4's staff half (business settings UI is not part
+of this — see the table below):
+
+- `/api/v1/staff/` (list/create) and `/api/v1/staff/{id}/` (retrieve/update)
+  in `apps.accounts` — no new model, just tenant-scoped CRUD on the
+  existing `accounts.User` restricted to `manager`/`staff` roles.
+- A Business Owner can now actually build a team: previously the *only*
+  way any non-super-admin user got created was the platform's onboarding
+  flow (one `BUSINESS_OWNER` per tenant) — there was no way for an owner
+  to add `MANAGER`/`STAFF` accounts to handle conversations themselves.
+- Guardrails enforced server-side: can't create/promote to
+  `business_owner`/`super_admin`; `PATCH` can't target the business owner
+  record or the caller's own account (no self-lockout); a super admin
+  (`tenant=None`) creating staff is rejected with a clean 400 rather than
+  hitting a `NOT NULL` on `tenant`.
+- Frontend: a "Team" section on `/dashboard` — roster visible to staff+,
+  an add-team-member form and activate/deactivate controls visible to the
+  business owner only. Extracted the duplicated `Field` form-input
+  component (previously copy-pasted between `/admin` and `/dashboard`)
+  into `components/Field.tsx`.
+- 15 new tests (70 total) — all passed on the first run this time (no new
+  bugs caught), likely because the tenant/superadmin guard patterns from
+  the two earlier rounds of real bugs were applied proactively instead of
+  discovered here.
+- `seed_dev_data` now creates a sample Manager (Mambo Fashion) and Staff
+  (ABC Electronics) account.
+
 ## Not built yet — placeholder app directories only
 
 `backend/apps/{ai,knowledge,products,orders,campaigns,analytics,
@@ -102,7 +131,7 @@ map to the spec's remaining phases:
 
 | Phase | Spec # | Builds |
 |---|---|---|
-| 4 | Business management | Staff invites/roles-within-tenant, business settings UI |
+| 4 (remainder) | Business management | Business settings UI (opening hours, branding, etc.) — staff invites are done, see above |
 | 8 | AI engine | `apps.ai` — AISettings, `AIProvider` interface (OpenAI/Anthropic), human handoff (AI/HUMAN/HYBRID modes). `Conversation.ai_enabled` already exists and is unread by anything yet. |
 | 9 | RAG knowledge base | `apps.knowledge` — KnowledgeDocument/Chunk/Embedding, upload → chunk → embed → retrieve pipeline, pgvector |
 | 10 | Products & orders | `apps.products`, `apps.orders` |

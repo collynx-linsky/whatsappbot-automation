@@ -9,6 +9,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, Spec
 
 api_v1_patterns = [
     path("auth/", include("apps.accounts.urls")),
+    path("staff/", include("apps.accounts.staff_urls")),
     path("tenants/", include("apps.tenants.urls")),
     path("businesses/", include("apps.businesses.urls")),
     path("customers/", include("apps.customers.urls")),

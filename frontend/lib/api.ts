@@ -6,10 +6,13 @@
 import type {
   ApiErrorEnvelope,
   Business,
+  CreateStaffPayload,
+  CreateStaffResponse,
   LoginResponse,
   OnboardBusinessPayload,
   OnboardBusinessResponse,
   Paginated,
+  StaffMember,
   Tenant,
   User,
 } from "@/types";
@@ -153,6 +156,28 @@ export function listBusinesses(): Promise<Paginated<Business>> {
 
 export function updateBusiness(id: string, payload: Partial<Business>): Promise<Business> {
   return apiFetch<Business>(`/businesses/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+// ── Staff ────────────────────────────────────────────────────
+export function listStaff(): Promise<Paginated<StaffMember>> {
+  return apiFetch<Paginated<StaffMember>>("/staff/");
+}
+
+export function createStaff(payload: CreateStaffPayload): Promise<CreateStaffResponse> {
+  return apiFetch<CreateStaffResponse>("/staff/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateStaff(
+  id: string,
+  payload: Partial<Pick<StaffMember, "role" | "is_active" | "first_name" | "last_name" | "phone">>,
+): Promise<StaffMember> {
+  return apiFetch<StaffMember>(`/staff/${id}/`, {
     method: "PATCH",
     body: JSON.stringify(payload),
   });

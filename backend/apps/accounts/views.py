@@ -1,4 +1,4 @@
-"""WhatsAppBusinessAI — Accounts Views (Auth)"""
+"""WhatsAppBusinessAI — Accounts Views (Auth + Staff Management)"""
 
 import secrets
 from datetime import timedelta
@@ -7,7 +7,8 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
 from django.utils import timezone
-from rest_framework import status
+from rest_framework import generics, permissions, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -15,11 +16,17 @@ from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
+from apps.common.models import AuditLog
+from core.permissions import IsBusinessOwner, IsStaffOrAbove
+
 from .models import PasswordResetToken
 from .serializers import (
+    CreateStaffSerializer,
     ForgotPasswordSerializer,
     LoginSerializer,
     ResetPasswordSerializer,
+    StaffSerializer,
+    UpdateStaffSerializer,
     UserSerializer,
 )
 
@@ -133,3 +140,122 @@ class ResetPasswordView(APIView):
         reset_token.save(update_fields=["used_at"])
 
         return Response({"detail": "Password has been reset. You can now log in."})
+
+
+class StaffListCreateView(generics.ListCreateAPIView):
+    """
+    GET /api/v1/staff/ — team roster (owner + manager + staff) for the
+    caller's own tenant. Any staff+ role can view it.
+    POST /api/v1/staff/ — Business Owner only: add a Manager or Staff
+    account. Generates a temporary password (spec's onboarding pattern),
+    emails it, and returns it once — never accepted as client input.
+    """
+
+    serializer_class = StaffSerializer
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsBusinessOwner()]
+        return [IsStaffOrAbove()]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_superuser:
+            return User.objects.exclude(tenant__isnull=True).order_by("first_name", "last_name")
+        return User.objects.filter(tenant_id=user.tenant_id).order_by("first_name", "last_name")
+
+    def create(self, request, *args, **kwargs):
+        if request.user.tenant is None:
+            # A super admin has no tenant of their own — adding staff "to"
+            # nothing isn't a meaningful action here (same guard as
+            # core.mixins.TenantScopedCreateMixin, reimplemented because
+            # this view builds the User directly rather than via a
+            # serializer.save(tenant=...) call).
+            raise ValidationError(
+                "A super admin has no tenant of their own and cannot add staff directly."
+            )
+
+        serializer = CreateStaffSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        temporary_password = secrets.token_urlsafe(12)
+        new_user = User.objects.create_user(
+            email=data["email"],
+            password=temporary_password,
+            first_name=data["first_name"],
+            last_name=data.get("last_name", ""),
+            phone=data.get("phone", ""),
+            role=data["role"],
+            tenant=request.user.tenant,
+        )
+
+        AuditLog.log(
+            action="STAFF_ADDED",
+            user=request.user,
+            tenant=request.user.tenant,
+            obj=new_user,
+            metadata={"role": new_user.role, "email": new_user.email},
+            ip_address=request.META.get("REMOTE_ADDR"),
+        )
+
+        send_mail(
+            subject=f"You've been added to {settings.PLATFORM_NAME}",
+            message=(
+                f"You've been added as {new_user.get_role_display()} on "
+                f"{request.user.tenant.name}'s {settings.PLATFORM_NAME} account.\n\n"
+                f"Login: {new_user.email}\n"
+                f"Temporary password: {temporary_password}\n\n"
+                f"Sign in at {settings.FRONTEND_URL}/login and change your password."
+            ),
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[new_user.email],
+            fail_silently=True,
+        )
+
+        return Response(
+            {"user": StaffSerializer(new_user).data, "temporary_password": temporary_password},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class StaffDetailView(generics.RetrieveUpdateAPIView):
+    """
+    GET /api/v1/staff/{id}/ — staff+.
+    PATCH /api/v1/staff/{id}/ — Business Owner only. Cannot target the
+    business owner themself (no self-service role changes / lockout via
+    this endpoint) or the caller's own account.
+    """
+
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [IsStaffOrAbove()]
+        return [IsBusinessOwner()]
+
+    def get_serializer_class(self):
+        return UpdateStaffSerializer if self.request.method == "PATCH" else StaffSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_superuser:
+            return User.objects.exclude(tenant__isnull=True)
+        return User.objects.filter(tenant_id=user.tenant_id)
+
+    def perform_update(self, serializer):
+        target = serializer.instance
+        if target.role in (User.Role.BUSINESS_OWNER, User.Role.SUPER_ADMIN):
+            raise ValidationError("Cannot modify the business owner via this endpoint.")
+        if target.id == self.request.user.id:
+            raise ValidationError("Cannot modify your own account via this endpoint.")
+
+        updated_user = serializer.save()
+        AuditLog.log(
+            action="STAFF_UPDATED",
+            user=self.request.user,
+            # The target's tenant, not the actor's — matters when a super
+            # admin (tenant=None) is the one making the change.
+            tenant=updated_user.tenant,
+            obj=updated_user,
+            metadata={"role": updated_user.role, "is_active": updated_user.is_active},
+            ip_address=self.request.META.get("REMOTE_ADDR"),
+        )
