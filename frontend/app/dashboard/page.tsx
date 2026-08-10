@@ -78,7 +78,14 @@ export default function DashboardPage() {
   const isOwner = user.role === "business_owner";
 
   return (
-    <DashboardShell user={user} title="Business Dashboard">
+    <DashboardShell
+      user={user}
+      title="Business Dashboard"
+      nav={[
+        { label: "Overview", href: "/dashboard" },
+        { label: "Products & Orders", href: "/dashboard/products" },
+      ]}
+    >
       <div className="space-y-8">
         {error && <Alert kind="error" message={error} />}
         {success && <Alert kind="success" message={success} />}

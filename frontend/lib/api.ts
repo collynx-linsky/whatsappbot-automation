@@ -6,12 +6,18 @@
 import type {
   ApiErrorEnvelope,
   Business,
+  CreateOrderPayload,
+  CreateProductPayload,
   CreateStaffPayload,
   CreateStaffResponse,
+  Customer,
   LoginResponse,
   OnboardBusinessPayload,
   OnboardBusinessResponse,
+  Order,
+  OrderStatus,
   Paginated,
+  Product,
   StaffMember,
   Tenant,
   User,
@@ -180,5 +186,48 @@ export function updateStaff(
   return apiFetch<StaffMember>(`/staff/${id}/`, {
     method: "PATCH",
     body: JSON.stringify(payload),
+  });
+}
+
+// ── Customers ────────────────────────────────────────────────
+export function listCustomers(): Promise<Paginated<Customer>> {
+  return apiFetch<Paginated<Customer>>("/customers/");
+}
+
+// ── Products ─────────────────────────────────────────────────
+export function listProducts(): Promise<Paginated<Product>> {
+  return apiFetch<Paginated<Product>>("/products/");
+}
+
+export function createProduct(payload: CreateProductPayload): Promise<Product> {
+  return apiFetch<Product>("/products/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateProduct(id: string, payload: Partial<CreateProductPayload>): Promise<Product> {
+  return apiFetch<Product>(`/products/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+// ── Orders ───────────────────────────────────────────────────
+export function listOrders(): Promise<Paginated<Order>> {
+  return apiFetch<Paginated<Order>>("/orders/");
+}
+
+export function createOrder(payload: CreateOrderPayload): Promise<Order> {
+  return apiFetch<Order>("/orders/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateOrderStatus(id: string, newStatus: OrderStatus): Promise<Order> {
+  return apiFetch<Order>(`/orders/${id}/status/`, {
+    method: "POST",
+    body: JSON.stringify({ status: newStatus }),
   });
 }

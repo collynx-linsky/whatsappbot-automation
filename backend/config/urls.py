@@ -16,6 +16,8 @@ api_v1_patterns = [
     path("conversations/", include("apps.conversations.urls")),
     path("messages/", include("apps.messages.urls")),
     path("whatsapp/", include("apps.whatsapp.urls")),
+    path("products/", include("apps.products.urls")),
+    path("orders/", include("apps.orders.urls")),
 ]
 
 

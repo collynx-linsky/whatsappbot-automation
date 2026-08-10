@@ -122,19 +122,61 @@ of this — see the table below):
 - `seed_dev_data` now creates a sample Manager (Mambo Fashion) and Staff
   (ABC Electronics) account.
 
+## Done (this session — "Products & Orders")
+
+Corresponds to spec Phase 10:
+
+- `products.Product`: catalog per spec section 13. `image` is a single
+  field (matching `Business.logo`), not a gallery. `is_orderable` is
+  computed (`is_available and status=active and stock>0`), not stored.
+- `orders.Order` / `OrderItem`: spec section 14's status list implemented
+  as a real forward-only state machine (`Order.ALLOWED_TRANSITIONS`), not
+  a free-text field — this is what actually satisfies "require appropriate
+  confirmation before finalizing an order." `OrderItem` snapshots
+  `product_name`/`unit_price` at order time so a later price change never
+  rewrites history.
+- API: `/api/v1/products/`, `/api/v1/orders/` (+ `status/` for validated
+  transitions) — tenant-isolated, cross-tenant-FK-checked on `customer`/
+  `conversation`/every item's `product`.
+- Frontend: a new `/dashboard/products` page (catalog table + add-product
+  form for manager+, order list with per-row status-transition buttons,
+  order-creation form) and a nav bar added to `DashboardShell` (shared
+  between `/dashboard` and this new page).
+- `seed_dev_data`: 2–3 products per business + one confirmed sample order
+  per business, tied to the already-seeded conversation.
+- 17 new tests (87 total). **3 real bugs caught by the tests, not by
+  review, and fixed**: (1) `Product.sku`'s conditional `UniqueConstraint`
+  confused DRF's auto field generation into `required=True` despite
+  `blank=True` on the model — fixed with an explicit serializer field;
+  (2) the order-create response was missing `items` entirely because the
+  write-only nested input field shadowed the parent serializer's read-only
+  `items` field of the same name — fixed by having the view re-serialize
+  the created order with the read serializer instead of returning the
+  create serializer's own (write-only-blind) `.data`; (3) a test fixture
+  passed `price="100.00"` as a plain string instead of `Decimal("100.00")`
+  — Django doesn't coerce an assigned `DecimalField` value until it
+  round-trips through the DB, so `unit_price * quantity` did Python string
+  repetition (`"100.00" * 2 == "100.00100.00"`) instead of arithmetic.
+  Also caught and fixed independently: `OrderStatusTransitionView` listed
+  `TenantScopedQuerysetMixin` as a base class but then defined its own
+  `get_queryset()` on top, silently shadowing the mixin entirely (a plain
+  `APIView` doesn't support the mixin's `GenericAPIView`-based
+  `super().get_queryset()` chain anyway) — fixed by writing the tenant
+  filter directly instead of pretending to use the mixin.
+- docs/{database,api}.md updated.
+
 ## Not built yet — placeholder app directories only
 
-`backend/apps/{ai,knowledge,products,orders,campaigns,analytics,
-notifications,billing,audit}/` exist as empty Python packages (just
-`__init__.py`), not registered in `INSTALLED_APPS`, no models/views. They
-map to the spec's remaining phases:
+`backend/apps/{ai,knowledge,campaigns,analytics,notifications,billing,
+audit}/` exist as empty Python packages (just `__init__.py`), not
+registered in `INSTALLED_APPS`, no models/views. They map to the spec's
+remaining phases:
 
 | Phase | Spec # | Builds |
 |---|---|---|
 | 4 (remainder) | Business management | Business settings UI (opening hours, branding, etc.) — staff invites are done, see above |
 | 8 | AI engine | `apps.ai` — AISettings, `AIProvider` interface (OpenAI/Anthropic), human handoff (AI/HUMAN/HYBRID modes). `Conversation.ai_enabled` already exists and is unread by anything yet. |
 | 9 | RAG knowledge base | `apps.knowledge` — KnowledgeDocument/Chunk/Embedding, upload → chunk → embed → retrieve pipeline, pgvector |
-| 10 | Products & orders | `apps.products`, `apps.orders` |
 | 11 | Marketing | `apps.campaigns` — segments, templates, opt-in/messaging-window compliance |
 | 12 | Analytics | `apps.analytics` — funnel (conversation → lead → qualified → order → revenue), platform-level stats for super admin |
 | 13 | Billing/subscriptions | `apps.billing` — actually enforce `Plan` limits, `Subscription`, `UsageRecord`, `Invoice` |
@@ -185,3 +227,15 @@ lands, not before (a doc for code that doesn't exist yet just goes stale).
 - WhatsApp integration limitations (media messages, delivery/read
   receipts, no connection test) are listed in `docs/whatsapp.md` rather
   than duplicated here.
+- Creating an order does **not** decrement `Product.stock` — inventory
+  management is manual for now. Test-documented on purpose
+  (`test_stock_is_independent_of_order_creation`) so implementing real
+  stock deduction later fails that test as a reminder to update it, not a
+  silent behavior change.
+- No image gallery for products (or businesses) — one `ImageField` each,
+  no upload endpoint built yet either (same gap as `MessageAttachment`).
+- Order creation is single-request/single-transaction (all items validated
+  and created atomically) but there's no "reserve stock while the customer
+  decides" concept — two concurrent orders can both succeed against the
+  same limited stock. Fine for a manually-managed catalog; would need
+  addressing before stock deduction becomes real.

@@ -3,22 +3,29 @@
 
 Creates sample development data (spec section 30) scoped to what this
 phase actually builds: default Plans, sample tenants + businesses + owners,
-a Manager/Staff account for two of the three businesses (Staff Management
-phase), and a couple of sample customers per business plus one seeded
-conversation with messages. Later phases (products, orders, ...) extend
-this command as those apps land — see docs/ROADMAP.md.
+a Manager/Staff account for two of the three businesses, a couple of
+sample customers per business plus one seeded conversation with messages,
+a small product catalog per business, and one confirmed sample order tying
+a seeded conversation to real product data. Later phases (campaigns,
+knowledge base, ...) extend this command as those apps land — see
+docs/ROADMAP.md.
 
 All data is clearly fictional. Safe to re-run (idempotent by email/slug).
 """
 
+from decimal import Decimal
+
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.businesses.models import Business
 from apps.conversations.models import Conversation
 from apps.customers.models import Customer
 from apps.messages.models import Message
+from apps.orders.models import Order, OrderItem
+from apps.products.models import Product
 from apps.tenants.models import Plan, Tenant
 
 SAMPLE_BUSINESSES = [
@@ -48,6 +55,21 @@ SAMPLE_BUSINESSES = [
             },
             {"name": "Fatuma Ally", "phone": "+255700111002", "status": Customer.Status.NEW},
         ],
+        "products": [
+            {
+                "name": "Samsung 55in 4K TV",
+                "sku": "SAM-TV-55",
+                "price": Decimal("850000.00"),
+                "stock": 8,
+            },
+            {
+                "name": "LG 43in Smart TV",
+                "sku": "LG-TV-43",
+                "price": Decimal("520000.00"),
+                "stock": 12,
+            },
+            {"name": "iPhone 15", "sku": "APL-IP15", "price": Decimal("2100000.00"), "stock": 3},
+        ],
     },
     {
         "tenant_name": "Mambo Fashion House",
@@ -75,6 +97,20 @@ SAMPLE_BUSINESSES = [
             },
             {"name": "Peter Kamau", "phone": "+254700222002", "status": Customer.Status.NEW},
         ],
+        "products": [
+            {
+                "name": "Ankara Dress (Red, M)",
+                "sku": "ANK-DRS-M-RED",
+                "price": Decimal("4500.00"),
+                "stock": 6,
+            },
+            {
+                "name": "Kitenge Shirt (L)",
+                "sku": "KIT-SHT-L",
+                "price": Decimal("2800.00"),
+                "stock": 15,
+            },
+        ],
     },
     {
         "tenant_name": "Kijani Foods Co",
@@ -93,6 +129,10 @@ SAMPLE_BUSINESSES = [
                 "opening_message": "Good morning, what's on today's menu?",
             },
             {"name": "Betty Nakato", "phone": "+256700333002", "status": Customer.Status.NEW},
+        ],
+        "products": [
+            {"name": "Matoke Platter", "sku": "", "price": Decimal("15000.00"), "stock": 40},
+            {"name": "Grilled Tilapia", "sku": "", "price": Decimal("28000.00"), "stock": 20},
         ],
     },
 ]
@@ -171,7 +211,12 @@ class Command(BaseCommand):
                 )
             )
             self._seed_staff(tenant, spec.get("staff", []))
-            self._seed_customers_and_conversation(tenant, owner, spec.get("customers", []))
+            products = self._seed_products(tenant, spec.get("products", []))
+            customer, conversation = self._seed_customers_and_conversation(
+                tenant, owner, spec.get("customers", [])
+            )
+            if customer and products:
+                self._seed_sample_order(tenant, owner, customer, conversation, products[0])
 
         self._report_totals()
 
@@ -198,14 +243,63 @@ class Command(BaseCommand):
                 self.style.SUCCESS(f"  + {s_spec['role']}: {s_spec['email']} / {DEV_PASSWORD}")
             )
 
+    def _seed_products(self, tenant, product_specs):
+        """Sample catalog entries — enough variety to seed a sample order per business."""
+        products = []
+        for p_spec in product_specs:
+            product, _ = Product.objects.get_or_create(
+                tenant=tenant,
+                name=p_spec["name"],
+                defaults={
+                    "sku": p_spec.get("sku", ""),
+                    "price": p_spec["price"],
+                    "currency": (
+                        tenant.businesses.first().currency if tenant.businesses.exists() else "KES"
+                    ),
+                    "stock": p_spec.get("stock", 0),
+                },
+            )
+            products.append(product)
+        if products:
+            self.stdout.write(self.style.SUCCESS(f"  + {len(products)} products"))
+        return products
+
+    def _seed_sample_order(self, tenant, owner, customer, conversation, product):
+        """One CONFIRMED order per business, tying the seeded conversation to real product data."""
+        order = Order.objects.create(
+            tenant=tenant,
+            customer=customer,
+            conversation=conversation,
+            currency=product.currency,
+            status=Order.Status.PENDING,
+        )
+        OrderItem.objects.create(
+            tenant=tenant,
+            order=order,
+            product=product,
+            product_name=product.name,
+            unit_price=product.price,
+            quantity=1,
+        )
+        order.recalculate_total()
+        order.status = Order.Status.CONFIRMED
+        order.confirmed_by = owner
+        order.confirmed_at = timezone.now()
+        order.save(update_fields=["status", "confirmed_by", "confirmed_at", "updated_at"])
+        self.stdout.write(
+            self.style.SUCCESS(f"  + sample order: {product.name} for {customer.name} (confirmed)")
+        )
+
     def _seed_customers_and_conversation(self, tenant, owner, customer_specs):
         """
         Creates sample Customers, and for the first one that has an
         `opening_message`, an OPEN Conversation assigned to the owner with
         an inbound customer message + an outbound staff reply — a stand-in
-        for what Phase 7's real WhatsApp webhook will populate.
+        for what Phase 7's real WhatsApp webhook will populate. Returns
+        (customer, conversation) for that first one, or (None, None).
         """
         first_conversation_created = False
+        result = (None, None)
         for c_spec in customer_specs:
             customer, created = Customer.objects.get_or_create(
                 tenant=tenant,
@@ -245,12 +339,16 @@ class Command(BaseCommand):
             customer.touch_interaction()
 
             first_conversation_created = True
+            result = (customer, conversation)
+
+        return result
 
     def _report_totals(self):
         self.stdout.write(
             self.style.SUCCESS(
                 f"Totals: {Tenant.objects.count()} tenants, {Business.objects.count()} businesses, "
                 f"{User.objects.count()} users, {Customer.objects.count()} customers, "
-                f"{Conversation.objects.count()} conversations, {Message.objects.count()} messages."
+                f"{Conversation.objects.count()} conversations, {Message.objects.count()} messages, "
+                f"{Product.objects.count()} products, {Order.objects.count()} orders."
             )
         )

@@ -120,3 +120,87 @@ export interface CreateStaffResponse {
   user: StaffMember;
   temporary_password: string;
 }
+
+export type LeadStatus = "new" | "contacted" | "qualified" | "proposal" | "converted" | "lost";
+
+export interface Customer {
+  id: string;
+  tenant: string;
+  name: string;
+  phone: string;
+  email: string;
+  location: string;
+  tags: string[];
+  source: string;
+  status: LeadStatus;
+  notes: string;
+  last_interaction_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ProductStatus = "draft" | "active" | "archived";
+
+export interface Product {
+  id: string;
+  tenant: string;
+  name: string;
+  sku: string;
+  description: string;
+  category: string;
+  price: string;
+  currency: string;
+  stock: number;
+  is_available: boolean;
+  status: ProductStatus;
+  is_orderable: boolean;
+  image: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateProductPayload {
+  name: string;
+  sku?: string;
+  category?: string;
+  price: string;
+  currency?: string;
+  stock?: number;
+}
+
+export type OrderStatus = "pending" | "confirmed" | "processing" | "ready" | "delivered" | "cancelled";
+
+export interface OrderItemRecord {
+  id: string;
+  product: string;
+  product_name: string;
+  unit_price: string;
+  quantity: number;
+  subtotal: string;
+}
+
+export interface Order {
+  id: string;
+  tenant: string;
+  customer: string;
+  customer_name: string;
+  customer_phone: string;
+  conversation: string | null;
+  status: OrderStatus;
+  total_amount: string;
+  currency: string;
+  notes: string;
+  confirmed_by: string | null;
+  confirmed_by_name: string | null;
+  confirmed_at: string | null;
+  items: OrderItemRecord[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateOrderPayload {
+  customer: string;
+  conversation?: string | null;
+  notes?: string;
+  items: { product: string; quantity: number }[];
+}

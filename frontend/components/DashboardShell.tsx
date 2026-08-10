@@ -1,6 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 
 import * as api from "@/lib/api";
@@ -9,13 +10,16 @@ import type { User } from "@/types";
 export function DashboardShell({
   user,
   title,
+  nav,
   children,
 }: {
   user: User;
   title: string;
+  nav?: { label: string; href: string }[];
   children: ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
 
   async function handleLogout() {
     await api.logout();
@@ -46,6 +50,26 @@ export function DashboardShell({
             </button>
           </div>
         </div>
+        {nav && nav.length > 0 && (
+          <nav className="mx-auto flex max-w-5xl gap-1 px-6">
+            {nav.map((item) => {
+              const active = pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
+                    active
+                      ? "border-emerald-600 text-emerald-600 dark:border-emerald-400 dark:text-emerald-400"
+                      : "border-transparent text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+        )}
       </header>
       <main className="mx-auto max-w-5xl px-6 py-8">{children}</main>
     </div>

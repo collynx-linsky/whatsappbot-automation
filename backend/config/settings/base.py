@@ -55,6 +55,8 @@ LOCAL_APPS = [
     "apps.conversations",
     "apps.messages",
     "apps.whatsapp",
+    "apps.products",
+    "apps.orders",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -304,6 +306,8 @@ SPECTACULAR_SETTINGS = {
         {"name": "conversations", "description": "Conversations & staff assignment"},
         {"name": "messaging", "description": "Messages & attachments"},
         {"name": "whatsapp", "description": "WhatsApp account connection & webhook"},
+        {"name": "products", "description": "Product catalog"},
+        {"name": "orders", "description": "Customer orders"},
     ],
 }
 

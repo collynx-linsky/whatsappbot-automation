@@ -108,6 +108,53 @@ actually processed; Meta redelivers webhooks on timeout, and without this
 a retry would create a duplicate `Message`. Both inherit
 `core.models.BaseModel`. See `docs/whatsapp.md` for the full flow.
 
+### `products.Product`
+Fields per spec section 13: `name`, `sku` (optional — `(tenant, sku)`
+unique only when set, same conditional-constraint pattern as
+`Message.external_message_id`), `description`, `category` (free text, not
+a fixed enum — unlike `Business.category`, product categories are too
+business-specific for a platform-wide choice list), `price`/`currency`,
+`stock`, `is_available` (manual override — can be marked unavailable even
+with stock), `status` (`draft|active|archived`), `image` (single
+`ImageField`, matching the `Business.logo` pattern — not a gallery; no
+multi-image upload infrastructure exists yet). `is_orderable` is a
+computed property (`is_available and status == active and stock > 0`),
+not a stored field. Inherits `core.models.BaseModel`.
+
+**Serializer quirk worth knowing**: `sku`'s conditional `UniqueConstraint`
+(`condition=~Q(sku="")`) confuses DRF's automatic field generation into
+marking it `required=True` even though the model has `blank=True` —
+`ProductSerializer` declares `sku` explicitly to override this. If a
+future field hits the same "required when it shouldn't be" surprise,
+suspect a conditional `UniqueConstraint` first.
+
+### `orders.Order` / `OrderItem`
+Fields per spec section 14. `status` uses a proper state machine
+(`Order.ALLOWED_TRANSITIONS`, forward-only: `pending → confirmed →
+processing → ready → delivered`, `cancelled` reachable from any
+non-terminal state) rather than a free-text field anyone can set to
+anything — this is what actually implements the spec's "require
+appropriate confirmation before finalizing an order." Only
+`POST /api/v1/orders/{id}/status/` can change `status`; a plain `PATCH`
+on the order only touches `notes`. Moving to `confirmed` stamps
+`confirmed_by`/`confirmed_at`.
+
+`OrderItem` **snapshots** `product_name`/`unit_price` from the `Product`
+at order-creation time — a later price change on the product must never
+retroactively alter a historical order's total (test-verified:
+`tests/test_orders.py::test_price_snapshot_survives_later_product_price_change`).
+`Order.total_amount` is denormalized and recalculated via
+`Order.recalculate_total()` after items change. `Order.customer` and
+`Order.conversation` (nullable — set when an order originates from a
+WhatsApp conversation) both inherit the cross-tenant-FK validation
+pattern from `docs/multi-tenancy.md`. Both models inherit
+`core.models.BaseModel`.
+
+**Known gap, flagged honestly**: creating an order does **not** decrement
+`Product.stock` — inventory management is manual for now (see
+`docs/ROADMAP.md`); `tests/test_orders.py::test_stock_is_independent_of_order_creation`
+documents this on purpose so a future change to the behavior fails a test.
+
 ## Base model layer (`backend/core/models.py`)
 
 Every tenant-scoped domain model (customers, conversations, products,

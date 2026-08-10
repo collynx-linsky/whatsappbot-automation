@@ -1,9 +1,12 @@
+from decimal import Decimal
+
 import pytest
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.businesses.models import Business
 from apps.customers.models import Customer
+from apps.products.models import Product
 from apps.tenants.models import Plan, Tenant
 
 
@@ -57,6 +60,27 @@ def customer_a(tenant_a):
 def customer_b(tenant_b):
     tenant, _, _ = tenant_b
     return Customer.objects.create(tenant=tenant, name="Customer B", phone="+254700000002")
+
+
+@pytest.fixture
+def product_a(tenant_a):
+    # Decimal, not a plain string — Django's DecimalField does NOT coerce an
+    # assigned value until it round-trips through the DB (full_clean() or a
+    # save+refetch); a raw string left in memory makes `unit_price * quantity`
+    # do Python string repetition ("100.00" * 2 == "100.00100.00"), not
+    # arithmetic. Bit us once in tests/test_orders.py — see git history.
+    tenant, _, _ = tenant_a
+    return Product.objects.create(
+        tenant=tenant, name="Product A", price=Decimal("100.00"), stock=10
+    )
+
+
+@pytest.fixture
+def product_b(tenant_b):
+    tenant, _, _ = tenant_b
+    return Product.objects.create(
+        tenant=tenant, name="Product B", price=Decimal("200.00"), stock=5
+    )
 
 
 def auth_client(api_client, email, password):

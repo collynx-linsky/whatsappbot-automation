@@ -130,9 +130,38 @@ See `docs/whatsapp.md` for the full inbound/outbound flow and security model.
 | GET | `webhook/` | none (Meta) | Subscription verification handshake — `?hub.mode=subscribe&hub.verify_token=...&hub.challenge=...`. |
 | POST | `webhook/` | none (Meta) | Inbound message/status events. Requires a valid `X-Hub-Signature-256` header (HMAC-SHA256 of the raw body, `WHATSAPP_APP_SECRET`) — unsigned or wrongly-signed requests get `403`. Idempotent per WhatsApp message id. |
 
+## Products — `/api/v1/products/`
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `` | staff+ | Catalog for the caller's own tenant. Filter: `?status=`, `?category=`, `?is_available=`. Search: `?search=` (name/sku/description). |
+| POST | `` | manager+ | `{name, sku?, description?, category?, price, currency?, stock?}`. |
+| GET | `<uuid:pk>/` | staff+ | 404 if in another tenant. |
+| PATCH | `<uuid:pk>/` | manager+ | 404 if in another tenant. |
+
+## Orders — `/api/v1/orders/`
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `` | staff+ | Orders in the caller's own tenant. Filter: `?status=`, `?customer=`. |
+| POST | `` | staff+ | `{customer, conversation?, notes?, items: [{product, quantity}]}` — always created as `pending`; `total_amount` and each item's `unit_price`/`product_name` are computed/snapshotted server-side, never client input. Both `customer` and every `items[].product` must belong to the caller's own tenant. |
+| GET | `<uuid:pk>/` | staff+ | 404 if in another tenant. Includes nested `items`. |
+| PATCH | `<uuid:pk>/` | staff+ | Only `notes` is writable here — `status` is read-only on this endpoint. |
+| POST | `<uuid:pk>/status/` | staff+ | `{"status": "confirmed"}` — the only way to change an order's status. Validated against `Order.ALLOWED_TRANSITIONS` (see `docs/database.md`); an invalid transition (skipping a stage, moving backwards, or touching a terminal order) returns `400`. Moving to `confirmed` stamps `confirmed_by`/`confirmed_at`. |
+
+`POST /orders/` payload:
+```json
+{
+  "customer": "<uuid>",
+  "conversation": "<uuid> (optional)",
+  "notes": "",
+  "items": [{"product": "<uuid>", "quantity": 2}]
+}
+```
+
 ## Not built yet
 
 Every other `/api/v1/<domain>/` path listed in the master spec
-(`ai/`, `knowledge/`, `products/`, `orders/`, `campaigns/`,
-`analytics/`, `notifications/`, `billing/`, `audit/`) is not implemented —
-see `docs/ROADMAP.md` for which phase builds each one.
+(`ai/`, `knowledge/`, `campaigns/`, `analytics/`, `notifications/`,
+`billing/`, `audit/`) is not implemented — see `docs/ROADMAP.md` for which
+phase builds each one.
