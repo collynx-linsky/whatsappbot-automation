@@ -1,9 +1,11 @@
 """
 WhatsAppBusinessAI — WhatsApp Signals
 
-Listens for outbound staff messages and dispatches them to WhatsApp. Lives
-here (not in apps.messages) so the core messaging app has zero knowledge
-that WhatsApp exists — a future provider app would listen the same way.
+Listens for outbound staff *and* AI-authored messages and dispatches them
+to WhatsApp. Lives here (not in apps.messages or apps.ai) so the core
+messaging app has zero knowledge that WhatsApp exists, and the AI engine
+has zero knowledge of how (or whether) its replies actually get delivered
+— a future provider app would listen the same way.
 """
 
 import logging
@@ -15,12 +17,17 @@ from apps.messages.models import Message
 
 logger = logging.getLogger("waba")
 
+# Both a human staff reply and an AI-generated reply need to reach the
+# customer on WhatsApp. SYSTEM messages (e.g. an internal handoff note)
+# deliberately do not — see apps.ai.services._hand_off.
+_SENDABLE_SENDER_TYPES = (Message.SenderType.STAFF, Message.SenderType.AI)
+
 
 @receiver(post_save, sender=Message)
 def dispatch_outbound_message(sender, instance, created, **kwargs):
     if not created or instance.direction != Message.Direction.OUTBOUND:
         return
-    if instance.sender_type != Message.SenderType.STAFF:
+    if instance.sender_type not in _SENDABLE_SENDER_TYPES:
         return
 
     from .tasks import send_whatsapp_message_task

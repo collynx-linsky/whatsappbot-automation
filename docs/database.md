@@ -108,6 +108,23 @@ actually processed; Meta redelivers webhooks on timeout, and without this
 a retry would create a duplicate `Message`. Both inherit
 `core.models.BaseModel`. See `docs/whatsapp.md` for the full flow.
 
+### `ai.AISettings`
+One row per `Business` (`OneToOneField`), created lazily on first
+`GET /api/v1/ai/settings/` rather than at business-creation time, so a
+business's AI stays fully configured with sane defaults even if nobody
+ever visits an "AI settings" screen. Fields per spec section 11: `mode`
+(`ai|human|hybrid`), `ai_enabled`, `human_handoff_enabled`,
+`confidence_threshold` (float, default `0.6` — below this the reply is
+treated as unreliable and handed off), `handoff_keywords` (JSON list,
+case-insensitive substring match against the inbound message),
+`assistant_name`, `system_prompt` (blank = built from the business's own
+profile at reply time, never invented), `tone`, `welcome_message`,
+`fallback_message` (shown to the customer on handoff — the handoff itself
+is otherwise invisible to them), `max_response_length`, `provider`
+(`openai|anthropic`), `model_name` (blank = provider's own default model).
+Inherits `core.models.BaseModel`. See `docs/ai.md` for the full reply/
+handoff flow.
+
 ### `products.Product`
 Fields per spec section 13: `name`, `sku` (optional — `(tenant, sku)`
 unique only when set, same conditional-constraint pattern as

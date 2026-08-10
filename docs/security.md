@@ -59,15 +59,15 @@ response, proven by testing the actual rendered response body.
 
 ## Secrets not yet implemented (flagged honestly)
 
-- AI provider API keys (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) are read
-  into settings but nothing calls out to them yet — Phase 8.
-- Rate limiting architecture (DRF throttle classes) is not wired up this
-  phase — `REST_FRAMEWORK` has no `DEFAULT_THROTTLE_CLASSES` yet. This
-  matters more now that there's a public, unauthenticated webhook endpoint
-  (`/api/v1/whatsapp/webhook/`) — it's protected by signature verification,
-  not rate limiting, so a flood of *correctly signed* requests (only
-  possible by someone with the app secret) or repeated failed-signature
-  probing isn't throttled. Flagged in `docs/ROADMAP.md`.
+- Rate limiting architecture (DRF throttle classes) is not wired up yet —
+  `REST_FRAMEWORK` has no `DEFAULT_THROTTLE_CLASSES` yet. This matters most
+  for two endpoints specifically: the public, unauthenticated webhook
+  (`/api/v1/whatsapp/webhook/`, protected by signature verification, not
+  rate limiting — a flood of *correctly signed* requests or repeated
+  failed-signature probing isn't throttled) and `/api/v1/ai/test/`
+  (authenticated, but an unthrottled loop against it would burn a real
+  provider's API quota/cost once `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` is
+  set — see `docs/ai.md`). Flagged in `docs/ROADMAP.md` as Phase 15 work.
 - File upload validation (type/size checks beyond `MAX_UPLOAD_SIZE_MB`)
   lands with `apps.knowledge` (document uploads, Phase 9) and
   `MessageAttachment` (already modeled, no upload endpoint yet).
@@ -77,9 +77,12 @@ response, proven by testing the actual rendered response body.
 ## Audit logging
 
 `apps.common.models.AuditLog` + `AuditLog.log(...)` helper. Currently wired
-to: user creation (signal), tenant onboarding, tenant suspend/activate.
-Every future administrative action (product changes, order creation, AI
-settings changes, staff added, campaign created, ...) should call
+to: user creation (signal), tenant onboarding, tenant suspend/activate,
+and every AI→human handoff (`apps.ai.services._hand_off`, action
+`AI_HANDOFF`, metadata records the reason — keyword match, low confidence,
+provider error, or missing API key). Every future administrative action
+(product changes, order creation, AI settings changes, staff added,
+campaign created, ...) should call
 `AuditLog.log(action=..., user=..., tenant=..., obj=...)` from its service
 layer as those apps land — this is a platform-wide requirement (spec
 section 19), not per-app optional.

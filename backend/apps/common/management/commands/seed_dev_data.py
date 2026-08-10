@@ -5,8 +5,9 @@ Creates sample development data (spec section 30) scoped to what this
 phase actually builds: default Plans, sample tenants + businesses + owners,
 a Manager/Staff account for two of the three businesses, a couple of
 sample customers per business plus one seeded conversation with messages,
-a small product catalog per business, and one confirmed sample order tying
-a seeded conversation to real product data. Later phases (campaigns,
+a small product catalog per business, one confirmed sample order tying
+a seeded conversation to real product data, and default AI settings
+(hybrid mode, human handoff on) per business. Later phases (campaigns,
 knowledge base, ...) extend this command as those apps land — see
 docs/ROADMAP.md.
 
@@ -20,6 +21,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.accounts.models import User
+from apps.ai.models import AISettings
 from apps.businesses.models import Business
 from apps.conversations.models import Conversation
 from apps.customers.models import Customer
@@ -176,10 +178,20 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("Plans ready: Starter (default), Growth."))
 
         for spec in SAMPLE_BUSINESSES:
-            if User.objects.filter(email__iexact=spec["owner_email"]).exists():
+            existing_owner = User.objects.filter(email__iexact=spec["owner_email"]).first()
+            if existing_owner is not None:
+                # Re-run on an already-seeded dev DB: don't recreate the
+                # tenant/business/owner, but still backfill anything a
+                # later phase added since the first run (e.g. AI settings)
+                # so this command stays genuinely idempotent, not just
+                # idempotent-by-accident on the very first phase it seeded.
+                business = Business.objects.filter(tenant=existing_owner.tenant).first()
+                if business is not None:
+                    self._seed_ai_settings(existing_owner.tenant, business)
                 self.stdout.write(
                     self.style.WARNING(
-                        f"{spec['business_name']}: owner already exists - skipping."
+                        f"{spec['business_name']}: owner already exists - skipping creation, "
+                        "backfilled AI settings."
                     )
                 )
                 continue
@@ -189,7 +201,7 @@ class Command(BaseCommand):
                 plan=starter,
                 status=Tenant.Status.ACTIVE,
             )
-            Business.objects.create(
+            business = Business.objects.create(
                 tenant=tenant,
                 name=spec["business_name"],
                 category=spec["category"],
@@ -211,6 +223,7 @@ class Command(BaseCommand):
                 )
             )
             self._seed_staff(tenant, spec.get("staff", []))
+            self._seed_ai_settings(tenant, business)
             products = self._seed_products(tenant, spec.get("products", []))
             customer, conversation = self._seed_customers_and_conversation(
                 tenant, owner, spec.get("customers", [])
@@ -242,6 +255,26 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.SUCCESS(f"  + {s_spec['role']}: {s_spec['email']} / {DEV_PASSWORD}")
             )
+
+    def _seed_ai_settings(self, tenant, business):
+        """
+        Default AI configuration per business — hybrid mode, human handoff
+        on, the built-in keyword list from AISettings.DEFAULT_HANDOFF_KEYWORDS
+        (spec section 11's example set). No provider API key is required to
+        create these; the actual provider stays unreachable until
+        OPENAI_API_KEY/ANTHROPIC_API_KEY is set in .env — generate_ai_reply()
+        gracefully hands off to a human in the meantime.
+        """
+        AISettings.objects.get_or_create(
+            business=business,
+            defaults={
+                "tenant": tenant,
+                "assistant_name": f"{business.name} Assistant",
+                "welcome_message": (f"Hi! Welcome to {business.name}. How can I help you today?"),
+                "handoff_keywords": AISettings.DEFAULT_HANDOFF_KEYWORDS,
+            },
+        )
+        self.stdout.write(self.style.SUCCESS("  + AI settings (hybrid mode, handoff enabled)"))
 
     def _seed_products(self, tenant, product_specs):
         """Sample catalog entries — enough variety to seed a sample order per business."""
@@ -349,6 +382,7 @@ class Command(BaseCommand):
                 f"Totals: {Tenant.objects.count()} tenants, {Business.objects.count()} businesses, "
                 f"{User.objects.count()} users, {Customer.objects.count()} customers, "
                 f"{Conversation.objects.count()} conversations, {Message.objects.count()} messages, "
-                f"{Product.objects.count()} products, {Order.objects.count()} orders."
+                f"{Product.objects.count()} products, {Order.objects.count()} orders, "
+                f"{AISettings.objects.count()} AI settings."
             )
         )

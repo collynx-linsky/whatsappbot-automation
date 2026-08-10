@@ -165,9 +165,64 @@ Corresponds to spec Phase 10:
   filter directly instead of pretending to use the mixin.
 - docs/{database,api}.md updated.
 
+## Done (this session — "AI Engine")
+
+Corresponds to spec Phase 8:
+
+- Model: `ai.AISettings` — one row per `Business`, created lazily on first
+  `GET /api/v1/ai/settings/` rather than at business-creation time.
+- `apps.ai.providers`: `AIProvider` interface + `OpenAIProvider` +
+  `AnthropicProvider` (spec section 38), plain HTTP via `requests` (same
+  pattern as `apps.whatsapp.providers`, no vendor SDK). `get_provider()`
+  returns `None` (not an exception) when the matching API key is blank in
+  `.env` — the exact signal `generate_ai_reply` uses to hand off instead
+  of erroring, since **no real OpenAI/Anthropic API key was available this
+  session**.
+- `apps.ai.services.generate_ai_reply`: the full AI/human decision flow
+  (spec section 10) — mode gating, built-in + business-defined handoff
+  keyword/phrase detection (checked *before* any provider call, to save
+  cost), confidence-threshold handoff, a grounded default system prompt
+  built from the business's own profile (explicit "never invent prices"
+  instruction), last-10-turn conversation history. Confidence is an
+  honestly-labeled heuristic (`apps.ai.providers._estimate_confidence`) —
+  neither provider's chat completions API returns a real calibrated score.
+- Handoff is transparent to the customer (sends `AISettings.fallback_message`
+  as a normal AI-authored reply, not silence) and flips
+  `Conversation.ai_enabled = False` so follow-up messages don't keep
+  re-triggering AI attempts until a human re-enables it; every handoff is
+  also written to `AuditLog` (`action="AI_HANDOFF"`, reason in metadata).
+- Wired into the inbound pipeline via `apps.ai.signals.dispatch_ai_reply`
+  (`Message.post_save`, Celery task on the `default` queue) — same
+  decoupling pattern as WhatsApp's outbound signal; `apps.messages` still
+  has zero import of `apps.ai`. Extended
+  `apps.whatsapp.signals._SENDABLE_SENDER_TYPES` from `(STAFF,)` to
+  `(STAFF, AI)` so an AI-generated reply actually reaches WhatsApp, not
+  just a staff-typed one.
+- API: `GET/PATCH /api/v1/ai/settings/`, `POST /api/v1/ai/test/`
+  (onboarding "test your AI" step) — both manager+, tenant-isolated.
+- `seed_dev_data` now creates default `AISettings` (hybrid mode, handoff
+  enabled, the spec's example `handoff_keywords` list) for every seeded
+  business — including a backfill path for a dev DB seeded before this
+  phase existed, so the command stays genuinely safe to re-run.
+- 22 new passing tests (109 total). One real test-design bug caught and
+  fixed during writing (not a product bug): `CELERY_TASK_ALWAYS_EAGER=True`
+  in test settings meant creating an inbound `Message` via the test helper
+  *also* synchronously ran `generate_ai_reply` through the real signal
+  before the test's own direct call — double-invoking it and corrupting
+  `conversation.ai_enabled` out from under the assertions. Fixed by
+  disconnecting `dispatch_ai_reply` for the test class that calls
+  `generate_ai_reply()` directly.
+- `docs/ai.md` (new); `docs/database.md`, `docs/api.md`, `docs/security.md`
+  updated.
+- **Also verified live** against a running dev server: settings
+  lazily-created and returned correctly, `/ai/test/` correctly reported a
+  real (not simulated) "openai API key not configured" handoff, tenant
+  isolation and RBAC (`staff` role gets `403` on `PATCH`) both proven with
+  two real seeded business owners.
+
 ## Not built yet — placeholder app directories only
 
-`backend/apps/{ai,knowledge,campaigns,analytics,notifications,billing,
+`backend/apps/{knowledge,campaigns,analytics,notifications,billing,
 audit}/` exist as empty Python packages (just `__init__.py`), not
 registered in `INSTALLED_APPS`, no models/views. They map to the spec's
 remaining phases:
@@ -175,7 +230,6 @@ remaining phases:
 | Phase | Spec # | Builds |
 |---|---|---|
 | 4 (remainder) | Business management | Business settings UI (opening hours, branding, etc.) — staff invites are done, see above |
-| 8 | AI engine | `apps.ai` — AISettings, `AIProvider` interface (OpenAI/Anthropic), human handoff (AI/HUMAN/HYBRID modes). `Conversation.ai_enabled` already exists and is unread by anything yet. |
 | 9 | RAG knowledge base | `apps.knowledge` — KnowledgeDocument/Chunk/Embedding, upload → chunk → embed → retrieve pipeline, pgvector |
 | 11 | Marketing | `apps.campaigns` — segments, templates, opt-in/messaging-window compliance |
 | 12 | Analytics | `apps.analytics` — funnel (conversation → lead → qualified → order → revenue), platform-level stats for super admin |
@@ -184,7 +238,7 @@ remaining phases:
 | 15 | Testing/security | Broader test coverage, rate limiting, file upload validation |
 | 16 | Docker/deployment | Production Dockerfiles, CI, real deployment target |
 
-Also not yet started: `docs/ai.md`, `docs/rag.md`, `docs/deployment.md`,
+Also not yet started: `docs/rag.md`, `docs/deployment.md`,
 `docs/troubleshooting.md` — write these when their corresponding phase
 lands, not before (a doc for code that doesn't exist yet just goes stale).
 

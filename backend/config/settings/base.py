@@ -57,6 +57,7 @@ LOCAL_APPS = [
     "apps.whatsapp",
     "apps.products",
     "apps.orders",
+    "apps.ai",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -220,7 +221,8 @@ CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_TASK_ROUTES = {
     "apps.whatsapp.tasks.*": {"queue": "high_priority"},
-    # More routes added as background-processing-heavy apps (ai, knowledge,
+    "apps.ai.tasks.*": {"queue": "default"},
+    # More routes added as background-processing-heavy apps (knowledge,
     # campaigns) land in later phases.
 }
 
@@ -308,6 +310,7 @@ SPECTACULAR_SETTINGS = {
         {"name": "whatsapp", "description": "WhatsApp account connection & webhook"},
         {"name": "products", "description": "Product catalog"},
         {"name": "orders", "description": "Customer orders"},
+        {"name": "ai", "description": "AI assistant configuration & testing"},
     ],
 }
 

@@ -159,9 +159,20 @@ See `docs/whatsapp.md` for the full inbound/outbound flow and security model.
 }
 ```
 
+## AI — `/api/v1/ai/`
+
+See `docs/ai.md` for the full reply/handoff flow. Singleton-per-tenant —
+no `<uuid:pk>` in either URL, unlike every other resource in this API.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `settings/` | manager+ | The caller's own business's AI config. Created lazily with model defaults on first request if it doesn't exist yet. |
+| PATCH | `settings/` | manager+ | Partial update — any subset of `AISettings`' writable fields (see `docs/database.md`). |
+| POST | `test/` | manager+ | Onboarding "test your AI" step. `{"message": "..."}` → runs the same handoff-check + prompt-building logic as a real inbound message, without touching `Conversation`/`Message`. Returns `{handed_off, reason?, reply?, confidence?}`. |
+
 ## Not built yet
 
 Every other `/api/v1/<domain>/` path listed in the master spec
-(`ai/`, `knowledge/`, `campaigns/`, `analytics/`, `notifications/`,
+(`knowledge/`, `campaigns/`, `analytics/`, `notifications/`,
 `billing/`, `audit/`) is not implemented — see `docs/ROADMAP.md` for which
 phase builds each one.
