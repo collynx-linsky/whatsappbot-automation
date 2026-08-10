@@ -78,10 +78,36 @@ List endpoints are paginated (`core.pagination.StandardResultsPagination`,
 | GET | `<uuid:pk>/` | staff+ | 404 if it belongs to another tenant. |
 | PATCH | `<uuid:pk>/` | manager+ | 404 if it belongs to another tenant. |
 
+## Customers — `/api/v1/customers/` (staff+)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `` | List customers in the caller's own tenant. Filter: `?status=`, `?source=`. Search: `?search=` (name/phone/email). |
+| POST | `` | Create a customer. `tenant` is always server-injected. `(tenant, phone)` must be unique — a duplicate returns a clean 400, not a 500. |
+| GET | `<uuid:pk>/` | 404 if it belongs to another tenant. |
+| PATCH | `<uuid:pk>/` | 404 if it belongs to another tenant. |
+
+## Conversations — `/api/v1/conversations/` (staff+)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `` | List conversations in the caller's own tenant. Filter: `?status=`, `?assigned_to=`, `?ai_enabled=`. Search: `?search=` (customer name/phone). |
+| POST | `` | `{"customer": "<uuid>"}` opens a conversation. The customer must belong to the caller's own tenant — passing a real id from another tenant returns 400, not a leak. |
+| GET / PATCH | `<uuid:pk>/` | 404 if it belongs to another tenant. |
+| POST | `<uuid:pk>/assign/` | `{"user_id": "<uuid>" \| null}` — assigns/unassigns staff and logs a `ConversationAssignment` entry. The user must belong to the caller's own tenant. |
+| GET | `<uuid:pk>/assignments/` | Assignment history for one conversation. |
+
+## Messages — `/api/v1/messages/` (staff+)
+
+| Method | Path | Notes |
+|---|---|---|
+| GET | `` | List messages. Filter: `?conversation=<uuid>` (typical usage), `?sender_type=`, `?direction=`. |
+| POST | `` | `{"conversation": "<uuid>", "sender_type": "staff", "content": "..."}`. Only `sender_type=staff` is accepted this phase — customer/AI messages arrive via the not-yet-built WhatsApp webhook / AI engine. `direction`, `sender_user`, and `status` are always server-derived. Posting updates the parent conversation's `last_message_preview`/`last_message_at`/`unread_count` automatically. |
+| GET | `<uuid:pk>/` | 404 if it belongs to another tenant. |
+
 ## Not built yet
 
 Every other `/api/v1/<domain>/` path listed in the master spec
-(`customers/`, `conversations/`, `messages/`, `whatsapp/`, `ai/`,
-`knowledge/`, `products/`, `orders/`, `campaigns/`, `analytics/`,
-`notifications/`, `billing/`, `audit/`) is not implemented — see
-`docs/ROADMAP.md` for which phase builds each one.
+(`whatsapp/`, `ai/`, `knowledge/`, `products/`, `orders/`, `campaigns/`,
+`analytics/`, `notifications/`, `billing/`, `audit/`) is not implemented —
+see `docs/ROADMAP.md` for which phase builds each one.

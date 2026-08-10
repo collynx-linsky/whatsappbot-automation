@@ -22,13 +22,13 @@ class Command(BaseCommand):
 
         if not password:
             self.stderr.write(
-                self.style.ERROR("SUPERADMIN_PASSWORD is not set in your .env — aborting.")
+                self.style.ERROR("SUPERADMIN_PASSWORD is not set in your .env - aborting.")
             )
             return
 
         if User.objects.filter(email__iexact=email).exists():
             self.stdout.write(
-                self.style.WARNING(f"Super admin '{email}' already exists — skipping.")
+                self.style.WARNING(f"Super admin '{email}' already exists - skipping.")
             )
             return
 

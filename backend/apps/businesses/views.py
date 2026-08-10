@@ -2,24 +2,11 @@
 
 from rest_framework import generics, permissions
 
+from core.mixins import TenantScopedQuerysetMixin
 from core.permissions import IsManagerOrAbove, IsStaffOrAbove
 
 from .models import Business
 from .serializers import BusinessSerializer
-
-
-class TenantScopedQuerysetMixin:
-    """
-    Scopes the queryset to the caller's own tenant — never to a tenant id
-    supplied by the client. Super admins see everything (platform oversight).
-    """
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        user = self.request.user
-        if user.is_superuser:
-            return qs
-        return qs.filter(tenant_id=user.tenant_id)
 
 
 class BusinessListView(TenantScopedQuerysetMixin, generics.ListAPIView):

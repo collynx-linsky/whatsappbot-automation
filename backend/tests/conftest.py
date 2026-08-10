@@ -3,6 +3,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.businesses.models import Business
+from apps.customers.models import Customer
 from apps.tenants.models import Plan, Tenant
 
 
@@ -44,6 +45,18 @@ def tenant_a(db, plan):
 @pytest.fixture
 def tenant_b(db, plan):
     return _make_tenant_with_owner(plan, "Tenant B Ltd", "Business B", "owner-b@test.local")
+
+
+@pytest.fixture
+def customer_a(tenant_a):
+    tenant, _, _ = tenant_a
+    return Customer.objects.create(tenant=tenant, name="Customer A", phone="+254700000001")
+
+
+@pytest.fixture
+def customer_b(tenant_b):
+    tenant, _, _ = tenant_b
+    return Customer.objects.create(tenant=tenant, name="Customer B", phone="+254700000002")
 
 
 def auth_client(api_client, email, password):

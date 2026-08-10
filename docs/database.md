@@ -47,11 +47,49 @@ Platform-wide audit trail (spec section 19): `tenant`, `user`, `action`
 services in later phases call it rather than writing `AuditLog.objects.create(...)`
 directly.
 
+### `customers.Customer`
+CRM contact per spec sections 7/15: `name`, `phone`, `email`, `location`,
+`tags` (JSON list of strings — not a normalized Tag model, see
+`docs/ROADMAP.md`), `source`, `status` (lead pipeline:
+`new|contacted|qualified|proposal|converted|lost`), `notes`,
+`last_interaction_at`. `(tenant, phone)` is a unique constraint — the same
+phone number can exist across different tenants, never twice within one.
+Inherits `core.models.BaseModel`.
+
+### `conversations.Conversation` / `ConversationAssignment`
+`Conversation` per spec section 8, scoped down for this phase: exactly one
+`customer` and at most one `assigned_to` staff member (sufficient for 1:1
+WhatsApp chat) rather than a full `ConversationParticipant` model —
+see `docs/ROADMAP.md`. Fields: `channel` (`whatsapp` only for now),
+`status` (`open|pending|resolved|closed`), `ai_enabled`, `tags` (JSON list),
+`last_message_preview`/`last_message_at`/`unread_count` (denormalized,
+updated by `Conversation.record_message()`). `ConversationAssignment` is a
+separate *history* log (who was assigned when) written by
+`Conversation.assign_to()` — not exposed for direct write via the API.
+Both inherit `core.models.BaseModel`.
+
+### `messaging.Message` / `MessageAttachment`
+Note the app label is `messaging`, not `messages` — `apps.messages`'s
+directory name matches the spec, but its `AppConfig.label` had to be
+distinct from `django.contrib.messages` (already installed) or Django's
+app registry would crash on startup. Fields per spec section 8:
+`sender_type` (`customer|staff|ai|system`), `sender_user` (FK, staff only),
+`direction` (`inbound|outbound`), `message_type`, `content`, `status`,
+`external_message_id` (blank for now — reserved for Phase 7's webhook
+dedup, unique per tenant when set). `MessageEvent` (the webhook delivery
+dedup log) is deliberately not built yet — it only makes sense once
+there's a real webhook to dedupe. Both inherit `core.models.BaseModel`.
+
+**Note on message creation this phase**: since there's no real
+WhatsApp/AI integration yet, `POST /api/v1/messages/` only accepts
+`sender_type=staff` — it's the manual/testing surface for now, not a
+general-purpose message-creation endpoint. `direction` and `sender_user`
+are always server-derived, never client input.
+
 ## Base model layer (`backend/core/models.py`)
 
-Every future tenant-scoped domain model (customers, conversations,
-products, orders, ...) should inherit `core.models.BaseModel`, which
-combines:
+Every tenant-scoped domain model (customers, conversations, products,
+orders, ...) inherits `core.models.BaseModel`, which combines:
 
 - `TimeStampedModel` — `created_at` / `updated_at`
 - `SoftDeleteModel` — `is_deleted` / `deleted_at` / `deleted_by`, plus
@@ -64,8 +102,22 @@ combines:
 
 `Tenant`, `Plan`, `Business`, and `User` themselves don't inherit
 `BaseModel` (a tenant can't be tenant-scoped to itself, and `User` has its
-own auth-specific base classes) — everything built from Phase 4 onward
-(customers, conversations, products, ...) should.
+own auth-specific base classes). `Customer`, `Conversation`,
+`ConversationAssignment`, `Message`, and `MessageAttachment` all do.
+
+## Reusable view mixins (`backend/core/mixins.py`)
+
+`TenantScopedQuerysetMixin` (filters a DRF generic view's queryset to
+`request.user.tenant_id`, bypassed for `is_superuser`) and
+`TenantScopedCreateMixin` (injects `tenant` on create from
+`request.user.tenant`, rejecting with a clean 400 if the caller is a
+super admin with no tenant of their own) are used by every tenant-scoped
+list/create view — see `apps/customers/views.py`,
+`apps/conversations/views.py`, `apps/businesses/views.py`. When a
+client-supplied FK could reference an object in *another* tenant (e.g.
+`Conversation.customer`, `Message.conversation`), the serializer validates
+that FK's tenant explicitly (`validate_<field>`) — the create-mixin alone
+only protects the object being created, not objects it points to.
 
 ## Migrations
 
@@ -81,6 +133,12 @@ venv). No manual SQL — all schema changes go through migrations.
 - `Business`: composite index on `(tenant, is_active)`
 - `AuditLog`: composite index on `(tenant, action, created_at)`
 - `Plan.slug`, `Tenant.slug` — unique, auto-slugified
+- `Customer`: unique `(tenant, phone)`; composite indexes on
+  `(tenant, status)` and `(tenant, phone)`
+- `Conversation`: composite indexes on `(tenant, status)` and
+  `(tenant, assigned_to)`
+- `Message`: composite index on `(tenant, conversation, created_at)`;
+  unique `(tenant, external_message_id)` when `external_message_id` is set
 
 ## Local database credentials (this machine)
 

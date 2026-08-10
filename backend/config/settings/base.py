@@ -51,6 +51,9 @@ LOCAL_APPS = [
     "apps.businesses",
     "apps.accounts",
     "apps.common",
+    "apps.customers",
+    "apps.conversations",
+    "apps.messages",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -282,6 +285,9 @@ SPECTACULAR_SETTINGS = {
             "description": "Platform tenant & plan management (super admin)",
         },
         {"name": "businesses", "description": "Business profile management"},
+        {"name": "customers", "description": "Customer CRM"},
+        {"name": "conversations", "description": "Conversations & staff assignment"},
+        {"name": "messaging", "description": "Messages & attachments"},
     ],
 }
 

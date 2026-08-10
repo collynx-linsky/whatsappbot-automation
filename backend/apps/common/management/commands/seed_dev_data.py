@@ -2,9 +2,12 @@
 `python manage.py seed_dev_data`
 
 Creates sample development data (spec section 30) scoped to what this
-phase actually builds: default Plans, one sample tenant + business + owner
-+ a couple of staff. Later phases (customers, products, conversations, ...)
-extend this command as those apps land — see docs/ROADMAP.md.
+phase actually builds: default Plans, sample tenants + businesses + owners,
+and — as of the Customer CRM + Conversations phase — a couple of sample
+customers per business plus one seeded conversation with messages, so
+there's something to look at before the WhatsApp webhook (Phase 7) is
+wired in. Later phases (products, orders, ...) extend this command as
+those apps land — see docs/ROADMAP.md.
 
 All data is clearly fictional. Safe to re-run (idempotent by email/slug).
 """
@@ -14,6 +17,9 @@ from django.db import transaction
 
 from apps.accounts.models import User
 from apps.businesses.models import Business
+from apps.conversations.models import Conversation
+from apps.customers.models import Customer
+from apps.messages.models import Message
 from apps.tenants.models import Plan, Tenant
 
 SAMPLE_BUSINESSES = [
@@ -26,6 +32,15 @@ SAMPLE_BUSINESSES = [
         "owner_email": "owner@abcelectronics.test",
         "owner_first_name": "Amina",
         "owner_last_name": "Juma",
+        "customers": [
+            {
+                "name": "John Mushi",
+                "phone": "+255700111001",
+                "status": Customer.Status.QUALIFIED,
+                "opening_message": "Hi, do you sell Samsung 55 inch TVs?",
+            },
+            {"name": "Fatuma Ally", "phone": "+255700111002", "status": Customer.Status.NEW},
+        ],
     },
     {
         "tenant_name": "Mambo Fashion House",
@@ -36,6 +51,15 @@ SAMPLE_BUSINESSES = [
         "owner_email": "owner@mambofashion.test",
         "owner_first_name": "David",
         "owner_last_name": "Otieno",
+        "customers": [
+            {
+                "name": "Grace Wanjiru",
+                "phone": "+254700222001",
+                "status": Customer.Status.CONTACTED,
+                "opening_message": "Is the red Ankara dress still available in size M?",
+            },
+            {"name": "Peter Kamau", "phone": "+254700222002", "status": Customer.Status.NEW},
+        ],
     },
     {
         "tenant_name": "Kijani Foods Co",
@@ -46,6 +70,15 @@ SAMPLE_BUSINESSES = [
         "owner_email": "owner@kijanifoods.test",
         "owner_first_name": "Grace",
         "owner_last_name": "Namutebi",
+        "customers": [
+            {
+                "name": "Moses Okello",
+                "phone": "+256700333001",
+                "status": Customer.Status.NEW,
+                "opening_message": "Good morning, what's on today's menu?",
+            },
+            {"name": "Betty Nakato", "phone": "+256700333002", "status": Customer.Status.NEW},
+        ],
     },
 ]
 
@@ -91,7 +124,7 @@ class Command(BaseCommand):
             if User.objects.filter(email__iexact=spec["owner_email"]).exists():
                 self.stdout.write(
                     self.style.WARNING(
-                        f"{spec['business_name']}: owner already exists — skipping."
+                        f"{spec['business_name']}: owner already exists - skipping."
                     )
                 )
                 continue
@@ -108,7 +141,7 @@ class Command(BaseCommand):
                 country=spec["country"],
                 currency=spec["currency"],
             )
-            User.objects.create_user(
+            owner = User.objects.create_user(
                 email=spec["owner_email"],
                 password=DEV_PASSWORD,
                 first_name=spec["owner_first_name"],
@@ -122,9 +155,69 @@ class Command(BaseCommand):
                     f"owner={spec['owner_email']} / {DEV_PASSWORD})"
                 )
             )
+            self._seed_customers_and_conversation(tenant, owner, spec.get("customers", []))
+
+        self._report_totals()
 
         self.stdout.write(
             self.style.SUCCESS(
                 "\nSeed complete. All sample owner accounts use the password: " f"{DEV_PASSWORD}"
+            )
+        )
+
+    def _seed_customers_and_conversation(self, tenant, owner, customer_specs):
+        """
+        Creates sample Customers, and for the first one that has an
+        `opening_message`, an OPEN Conversation assigned to the owner with
+        an inbound customer message + an outbound staff reply — a stand-in
+        for what Phase 7's real WhatsApp webhook will populate.
+        """
+        first_conversation_created = False
+        for c_spec in customer_specs:
+            customer, created = Customer.objects.get_or_create(
+                tenant=tenant,
+                phone=c_spec["phone"],
+                defaults={
+                    "name": c_spec["name"],
+                    "status": c_spec["status"],
+                    "source": Customer.Source.WHATSAPP,
+                },
+            )
+            if not created or first_conversation_created or "opening_message" not in c_spec:
+                continue
+
+            conversation = Conversation.objects.create(
+                tenant=tenant,
+                customer=customer,
+                assigned_to=owner,
+            )
+            inbound = Message.objects.create(
+                tenant=tenant,
+                conversation=conversation,
+                sender_type=Message.SenderType.CUSTOMER,
+                direction=Message.Direction.INBOUND,
+                content=c_spec["opening_message"],
+            )
+            conversation.record_message(inbound)
+
+            reply = Message.objects.create(
+                tenant=tenant,
+                conversation=conversation,
+                sender_type=Message.SenderType.STAFF,
+                sender_user=owner,
+                direction=Message.Direction.OUTBOUND,
+                content="Thanks for reaching out! Let me check that for you.",
+            )
+            conversation.record_message(reply)
+            customer.touch_interaction()
+
+            first_conversation_created = True
+
+    def _report_totals(self):
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Totals: {Tenant.objects.count()} tenants, {Business.objects.count()} businesses, "
+                f"{Customer.objects.count()} customers, {Conversation.objects.count()} conversations, "
+                f"{Message.objects.count()} messages."
             )
         )

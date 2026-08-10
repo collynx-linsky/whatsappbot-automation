@@ -71,6 +71,20 @@ running server this session:
 - A super admin sees all businesses across all tenants.
 - A non-super-admin hitting the platform-wide `/api/v1/tenants/` list gets `403`.
 
+`backend/tests/test_customers.py`, `test_conversations.py`, and
+`test_messages.py` extend this to the CRM/conversation layer, including a
+variant that matters more once there's more than one tenant-scoped model
+referencing another: a **cross-tenant foreign key** attack, where the
+attacker's own tenant is correct but a body field points at a *real*
+object id belonging to someone else's tenant (e.g.
+`POST /api/v1/conversations/` with `customer: <business B's real customer
+id>`). Proven live: rejected with `400` ("Customer not found."), and no
+row is created. `TenantScopedCreateMixin` alone doesn't catch this — it
+only guards the tenant of the object *being created*, not objects it
+references — so every serializer with a client-writable FK to another
+tenant-scoped model has an explicit `validate_<field>` check
+(`apps/conversations/serializers.py`, `apps/messages/serializers.py`).
+
 ## What's tenant-scoped vs. platform-wide today
 
 | Model | Scope |
@@ -79,7 +93,7 @@ running server this session:
 | `Business` | Tenant-scoped |
 | `User` | Tenant-scoped (except `super_admin`, which has `tenant=None`) |
 | `AuditLog` | Tenant-scoped where `tenant` is set; platform actions may have `tenant=None` |
+| `Customer`, `Conversation`, `ConversationAssignment`, `Message`, `MessageAttachment` | Tenant-scoped |
 
-Every domain model added in later phases (customers, conversations,
-products, orders, ...) inherits `core.models.BaseModel` and is
-tenant-scoped by construction.
+Every domain model added in later phases (products, orders, ...) inherits
+`core.models.BaseModel` and is tenant-scoped by construction.

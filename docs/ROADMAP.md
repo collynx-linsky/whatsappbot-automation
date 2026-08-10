@@ -29,19 +29,47 @@ milestone:
 - `docs/architecture.md`, `docs/database.md`, `docs/multi-tenancy.md`,
   `docs/security.md`, `docs/api.md`, `docs/development.md`.
 
+## Done (this session — "Customer CRM + Conversations/Messages")
+
+Corresponds to spec Phase 5 + Phase 6, bundled:
+
+- Models: `customers.Customer` (lead status, tags, source), 
+  `conversations.Conversation` + `ConversationAssignment` (assignment
+  history log), `messaging.Message` + `MessageAttachment` (app label
+  `messaging`, not `messages` — collides with `django.contrib.messages`
+  otherwise).
+- `core/mixins.py`: extracted `TenantScopedQuerysetMixin` /
+  `TenantScopedCreateMixin` from `apps.businesses.views` so every new
+  tenant-scoped app reuses the same pattern instead of copy-pasting it.
+- Cross-tenant foreign key protection: every serializer with a
+  client-writable FK to another tenant-scoped model
+  (`Conversation.customer`, `Message.conversation`,
+  `Conversation.assigned_to`) validates that FK's tenant explicitly —
+  proven live, see `docs/multi-tenancy.md`.
+- API: `/api/v1/customers/`, `/api/v1/conversations/` (+ `assign/`,
+  `assignments/`), `/api/v1/messages/` — all tenant-isolated, staff+ gated.
+- `seed_dev_data` now creates 2 sample customers per business + one open
+  conversation with an inbound/outbound message pair for the first.
+- 38 passing `pytest` tests (15 new). **3 real bugs caught by the tests,
+  not by review, and fixed**: (1) `IntegrityError` on a duplicate
+  `(tenant, phone)` crashed with a 500 instead of a clean 400 — added
+  `validate_phone`; (2) a super admin `POST`ing to a tenant-scoped
+  create endpoint would have hit a `NOT NULL` constraint on `tenant`
+  (they have none) — `TenantScopedCreateMixin` now rejects this with a
+  clear 400; (3) two test assertions compared a UUID object to a string
+  (`resp.data["tenant"]` is a UUID, not a str, before JSON rendering).
+
 ## Not built yet — placeholder app directories only
 
-`backend/apps/{whatsapp,customers,conversations,messages,ai,knowledge,
-products,orders,campaigns,analytics,notifications,billing,audit}/` exist as
-empty Python packages (just `__init__.py`), not registered in
-`INSTALLED_APPS`, no models/views. They map to the spec's remaining phases:
+`backend/apps/{whatsapp,ai,knowledge,products,orders,campaigns,analytics,
+notifications,billing,audit}/` exist as empty Python packages (just
+`__init__.py`), not registered in `INSTALLED_APPS`, no models/views. They
+map to the spec's remaining phases:
 
 | Phase | Spec # | Builds |
 |---|---|---|
 | 4 | Business management | Staff invites/roles-within-tenant, business settings UI |
-| 5 | Customer CRM | `apps.customers` — Customer model, lead status, tags, notes |
-| 6 | Conversations/messages | `apps.conversations`, `apps.messages` — Conversation/Message/ConversationAssignment, OPEN/PENDING/RESOLVED/CLOSED |
-| 7 | WhatsApp integration | `apps.whatsapp` — WhatsAppAccount (encrypted credentials), webhook receiver, idempotent event processing, `MessagingProvider` interface |
+| 7 | WhatsApp integration | `apps.whatsapp` — WhatsAppAccount (encrypted credentials), webhook receiver, idempotent event processing, `MessagingProvider` interface. Writes into the `customers`/`conversations`/`messaging` models built this session. |
 | 8 | AI engine | `apps.ai` — AISettings, `AIProvider` interface (OpenAI/Anthropic), human handoff (AI/HUMAN/HYBRID modes) |
 | 9 | RAG knowledge base | `apps.knowledge` — KnowledgeDocument/Chunk/Embedding, upload → chunk → embed → retrieve pipeline, pgvector |
 | 10 | Products & orders | `apps.products`, `apps.orders` |
@@ -73,3 +101,14 @@ yet just goes stale).
   MANAGER/STAFF to have differently-scoped permissions *within* their
   tenant (not just a flat role check), that's new work, not something
   already stubbed.
+- `Conversation` is simplified to one customer + one assigned staff member
+  — no `ConversationParticipant` model for multi-party/group conversations.
+  Fine for 1:1 WhatsApp chat; revisit if internal multi-staff escalation on
+  a single conversation is ever needed.
+- Tags (`Customer.tags`, `Conversation.tags`) are a plain JSON list of
+  strings, not a normalized `Tag` model — no cross-tenant tag taxonomy,
+  autocomplete, or tag-based analytics yet.
+- `POST /api/v1/messages/` only accepts `sender_type=staff` — there's no
+  way to simulate an inbound customer message via the API (only via
+  `seed_dev_data` writing directly to the ORM). That's intentional until
+  Phase 7's webhook is the real source of inbound messages.
