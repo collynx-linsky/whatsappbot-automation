@@ -1,0 +1,62 @@
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# ── Django ────────────────────────────────────────────────────
+*.log
+backend/logs/*
+!backend/logs/.gitkeep
+backend/media/*
+!backend/media/.gitkeep
+backend/staticfiles/*
+!backend/staticfiles/.gitkeep
+db.sqlite3
+db.sqlite3-journal
+local_settings.py
+
+# ── Node / Next.js ────────────────────────────────────────────
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+*.tsbuildinfo
+next-env.d.ts
+.npm
+
+# ── Environment & secrets ─────────────────────────────────────
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+frontend/.env.local
+*.pem
+*.key
+
+# ── Storage ───────────────────────────────────────────────────
+storage/*
+!storage/.gitkeep
+
+# ── IDE / OS ──────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ── Docker ────────────────────────────────────────────────────
+infrastructure/docker/**/data/

@@ -1,0 +1,19 @@
+[tool.isort]
+profile = "black"
+line_length = 99
+known_first_party = ["apps", "config", "core"]
+
+[tool.black]
+line-length = 99
+target-version = ["py313"]
+
+[tool.ruff]
+line-length = 99
+target-version = "py313"
+
+[tool.ruff.lint]
+# Import sorting is isort's job (see [tool.isort] above) — ruff's I001 uses a
+# slightly different merge strategy for aliased imports and would otherwise
+# fight isort over the same lines.
+select = ["E", "F", "UP", "B"]
+ignore = ["E501"]
