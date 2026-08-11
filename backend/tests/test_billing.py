@@ -263,7 +263,7 @@ class TestEnforcementWiredIntoRealViews:
         assert resp.status_code == 402, resp.data
 
     def test_whatsapp_account_creation_blocked_at_limit(self, api_client, settings):
-        settings.WHATSAPP_TOKEN_ENCRYPTION_KEY = "u_aeZR2Zfksak3SwNr-u-kzLvYRTIhDnd2HMd1dFqZM="
+        settings.FIELD_ENCRYPTION_KEY = "u_aeZR2Zfksak3SwNr-u-kzLvYRTIhDnd2HMd1dFqZM="
         tenant, business, owner = _tenant_with_limit(max_whatsapp_accounts=0)
         # max_whatsapp_accounts=0 means unlimited per Plan's own convention —
         # use 1 with one already connected to actually trigger the block.

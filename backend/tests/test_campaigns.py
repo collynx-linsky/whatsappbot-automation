@@ -27,7 +27,9 @@ WHATSAPP_TOKEN_KEY = "u_aeZR2Zfksak3SwNr-u-kzLvYRTIhDnd2HMd1dFqZM="
 
 @pytest.fixture(autouse=True)
 def _whatsapp_settings(settings):
-    settings.WHATSAPP_TOKEN_ENCRYPTION_KEY = WHATSAPP_TOKEN_KEY
+    # core.crypto reads FIELD_ENCRYPTION_KEY, not WHATSAPP_TOKEN_ENCRYPTION_KEY
+    # directly — see core/crypto.py's generalization note.
+    settings.FIELD_ENCRYPTION_KEY = WHATSAPP_TOKEN_KEY
 
 
 @pytest.fixture

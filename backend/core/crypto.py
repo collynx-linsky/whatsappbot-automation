@@ -1,10 +1,13 @@
 """
 WhatsAppBusinessAI — Secret Encryption Helper
 
-Symmetric encryption (Fernet/AES) for credentials that must be stored at
-rest but never returned via any API response — WhatsApp access tokens
-today, any future third-party API secret stored per-tenant. Never use this
-for passwords (those are hashed, not encrypted, via Django's auth system).
+Symmetric encryption (Fernet/AES) for any value that must be stored at
+rest but never returned via any API response — WhatsApp access tokens,
+MFA TOTP secrets, and any future per-record secret. Never use this for
+passwords (those are hashed, not encrypted, via Django's auth system) —
+a password must never be recoverable even by someone with the key; a
+WhatsApp token or TOTP secret must be, which is exactly what encryption
+(vs. hashing) is for.
 """
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -15,12 +18,12 @@ from django.core.exceptions import ImproperlyConfigured
 def _fernet() -> Fernet:
     # Deliberately not cached: Fernet(key) is cheap (a base64 decode + a
     # validation check), and caching it would serve a stale key if
-    # settings.WHATSAPP_TOKEN_ENCRYPTION_KEY ever changes within a process
-    # — which pytest's `settings` fixture does routinely between tests.
-    key = getattr(settings, "WHATSAPP_TOKEN_ENCRYPTION_KEY", "")
+    # settings.FIELD_ENCRYPTION_KEY ever changes within a process — which
+    # pytest's `settings` fixture does routinely between tests.
+    key = getattr(settings, "FIELD_ENCRYPTION_KEY", "")
     if not key:
         raise ImproperlyConfigured(
-            "WHATSAPP_TOKEN_ENCRYPTION_KEY is not set. Generate one with "
+            "FIELD_ENCRYPTION_KEY is not set. Generate one with "
             '`python -c "from cryptography.fernet import Fernet; '
             'print(Fernet.generate_key().decode())"` and put it in .env.'
         )

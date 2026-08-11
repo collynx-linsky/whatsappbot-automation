@@ -11,9 +11,12 @@ mode, human handoff on), a couple of RAG knowledge base documents per
 business (processed synchronously, immediately usable without a Celery
 worker running), one customer per business opted in to marketing, a
 sample MessageTemplate/Segment/draft Campaign per business (never
-auto-sent — see docs/campaigns.md), and the current month's Invoice per
-business (see docs/billing.md — no real charge happens). Later phases
-extend this command as those apps land — see docs/ROADMAP.md.
+auto-sent — see docs/campaigns.md), the current month's Invoice per
+business (see docs/billing.md — no real charge happens), and MFA
+enrollment for every seeded user (required for everyone, no exceptions —
+see docs/mfa.md; the real TOTP secret, provisioning URI, and backup codes
+are printed once so you can actually log into these accounts). Later
+phases extend this command as those apps land — see docs/ROADMAP.md.
 
 All data is clearly fictional. Safe to re-run (idempotent by email/slug).
 """
@@ -25,6 +28,7 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
 
+from apps.accounts import mfa as mfa_service
 from apps.accounts.models import User
 from apps.ai.models import AISettings
 from apps.billing.models import Invoice
@@ -237,6 +241,11 @@ class Command(BaseCommand):
                 # later phase added since the first run (e.g. AI settings)
                 # so this command stays genuinely idempotent, not just
                 # idempotent-by-accident on the very first phase it seeded.
+                self._seed_mfa(existing_owner)
+                for s_spec in spec.get("staff", []):
+                    existing_staff = User.objects.filter(email__iexact=s_spec["email"]).first()
+                    if existing_staff is not None:
+                        self._seed_mfa(existing_staff)
                 business = Business.objects.filter(tenant=existing_owner.tenant).first()
                 if business is not None:
                     self._seed_ai_settings(existing_owner.tenant, business)
@@ -251,7 +260,7 @@ class Command(BaseCommand):
                 self.stdout.write(
                     self.style.WARNING(
                         f"{spec['business_name']}: owner already exists - skipping creation, "
-                        "backfilled AI settings + knowledge base + campaign setup + invoice."
+                        "backfilled AI settings + knowledge base + campaign setup + invoice + MFA."
                     )
                 )
                 continue
@@ -282,6 +291,7 @@ class Command(BaseCommand):
                     f"owner={spec['owner_email']} / {DEV_PASSWORD})"
                 )
             )
+            self._seed_mfa(owner)
             self._seed_staff(tenant, spec.get("staff", []))
             self._seed_ai_settings(tenant, business)
             self._seed_knowledge_documents(tenant, business, owner, spec.get("knowledge", []))
@@ -307,7 +317,7 @@ class Command(BaseCommand):
         for s_spec in staff_specs:
             if User.objects.filter(email__iexact=s_spec["email"]).exists():
                 continue
-            User.objects.create_user(
+            new_user = User.objects.create_user(
                 email=s_spec["email"],
                 password=DEV_PASSWORD,
                 first_name=s_spec["first_name"],
@@ -318,6 +328,37 @@ class Command(BaseCommand):
             self.stdout.write(
                 self.style.SUCCESS(f"  + {s_spec['role']}: {s_spec['email']} / {DEV_PASSWORD}")
             )
+            self._seed_mfa(new_user)
+
+    def _seed_mfa(self, user):
+        """
+        MFA is required for every role, no exceptions (docs/mfa.md) — a
+        seeded account can't actually be logged into via a browser/curl
+        without it. Pre-enrolls with a real (not hardcoded) secret, since
+        this is meant to be usable, not a security shortcut for dev data
+        — and prints everything needed to actually use it once: the
+        secret (for manual entry into an authenticator app),
+        `provisioning_uri` (scan as a QR code), and backup codes.
+        Idempotent — a user who already enrolled (e.g. via the real
+        onboarding flow) is left untouched, nothing is reprinted.
+        """
+        if user.mfa_enabled:
+            return
+        secret = mfa_service.generate_secret()
+        user.mfa_secret = secret
+        user.mfa_enabled = True
+        user.save(update_fields=["mfa_secret_encrypted", "mfa_enabled"])
+        backup_codes = mfa_service.generate_backup_codes()
+        mfa_service.store_backup_codes(user, backup_codes)
+
+        self.stdout.write(
+            self.style.WARNING(f"    MFA enrolled for {user.email} — set this up once:")
+        )
+        self.stdout.write(f"      Secret (manual entry): {secret}")
+        self.stdout.write(
+            f"      Provisioning URI (QR): {mfa_service.provisioning_uri(user, secret)}"
+        )
+        self.stdout.write(f"      Backup codes: {', '.join(backup_codes)}")
 
     def _seed_ai_settings(self, tenant, business):
         """

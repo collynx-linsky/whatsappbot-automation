@@ -69,7 +69,9 @@ def _sample_payload(
 def whatsapp_settings(settings):
     settings.WHATSAPP_APP_SECRET = APP_SECRET
     settings.WHATSAPP_VERIFY_TOKEN = VERIFY_TOKEN
-    settings.WHATSAPP_TOKEN_ENCRYPTION_KEY = "u_aeZR2Zfksak3SwNr-u-kzLvYRTIhDnd2HMd1dFqZM="
+    # core.crypto reads FIELD_ENCRYPTION_KEY (not WHATSAPP_TOKEN_ENCRYPTION_KEY
+    # directly) — see core/crypto.py's generalization note.
+    settings.FIELD_ENCRYPTION_KEY = "u_aeZR2Zfksak3SwNr-u-kzLvYRTIhDnd2HMd1dFqZM="
 
 
 @pytest.fixture

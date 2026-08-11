@@ -24,3 +24,4 @@ python-slugify==8.0.4
 requests==2.32.3
 cryptography==43.0.3
 pypdf==6.15.0
+pyotp==2.10.0

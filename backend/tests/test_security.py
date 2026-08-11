@@ -171,7 +171,7 @@ class TestAuditLoggingCoverage:
     """
 
     def test_whatsapp_account_connection_logged(self, api_client, tenant_a, settings):
-        settings.WHATSAPP_TOKEN_ENCRYPTION_KEY = "u_aeZR2Zfksak3SwNr-u-kzLvYRTIhDnd2HMd1dFqZM="
+        settings.FIELD_ENCRYPTION_KEY = "u_aeZR2Zfksak3SwNr-u-kzLvYRTIhDnd2HMd1dFqZM="
         _, business, owner_a = tenant_a
         client = auth_client(api_client, owner_a.email, "OwnerSecret1!")
 

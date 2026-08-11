@@ -5,6 +5,8 @@ from django.utils import timezone
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
+from . import mfa
+
 User = get_user_model()
 
 
@@ -33,19 +35,32 @@ class UserSerializer(serializers.ModelSerializer):
 
 class LoginSerializer(TokenObtainPairSerializer):
     """
-    Adds `role` and `tenant_id` claims to the issued JWT — read by
-    core.middleware.TenantMiddleware and DRF permission classes. Also
-    enforces the account-lockout policy (spec section 25 — brute-force
-    protection).
+    Email + password only gets as far as MFA — see docs/mfa.md. This
+    deliberately never returns a real access/refresh pair; it either
+    returns `{mfa_setup_required: True, setup_token}` (first login, no
+    TOTP enrolled yet) or `{mfa_required: True, challenge_token}`
+    (already enrolled). Real tokens only come from
+    `POST /api/v1/auth/mfa/setup/confirm/` or `POST /api/v1/auth/mfa/verify/`.
+
+    `get_token()` below still adds `role`/`tenant_id` claims to every
+    *real* JWT this app mints (read by core.middleware.TenantMiddleware
+    and DRF permission classes) — but the short-lived purpose tokens
+    minted by `apps.accounts.mfa.mint_purpose_token` for the MFA-pending
+    stages go through `AccessToken.for_user` directly, not this class, so
+    they deliberately carry neither claim: they must only ever reach the
+    MFA endpoints themselves (enforced by core.authentication /
+    core.permissions.IsMFAPending), which look the user up directly and
+    have no need for tenant-scoping claims a permission class elsewhere
+    might otherwise trust.
+
+    Also enforces the account-lockout policy (spec section 25 —
+    brute-force protection), shared with MFA-code failures — see
+    apps.accounts.models.User's lockout fields.
     """
 
     @classmethod
     def get_token(cls, user):
-        token = super().get_token(user)
-        token["role"] = user.role
-        token["tenant_id"] = str(user.tenant_id) if user.tenant_id else None
-        token["email"] = user.email
-        return token
+        return mfa.add_standard_claims(super().get_token(user), user)
 
     def validate(self, attrs):
         email = attrs.get(self.username_field)
@@ -61,19 +76,36 @@ class LoginSerializer(TokenObtainPairSerializer):
             )
 
         try:
-            data = super().validate(attrs)
+            super().validate(attrs)  # password check only — real tokens discarded below
         except Exception:
             if user:
                 user.increment_failed_login()
             raise
 
-        if user:
-            user.reset_failed_login()
-            user.last_login = timezone.now()
-            user.save(update_fields=["last_login"])
+        user.reset_failed_login()
+        user.last_login = timezone.now()
+        user.save(update_fields=["last_login"])
 
-        data["user"] = UserSerializer(self.user).data
-        return data
+        if not user.mfa_enabled:
+            token = mfa.mint_purpose_token(user, "mfa_setup", mfa.MFA_SETUP_TOKEN_LIFETIME)
+            return {"mfa_setup_required": True, "setup_token": str(token)}
+
+        token = mfa.mint_purpose_token(user, "mfa_challenge", mfa.MFA_CHALLENGE_TOKEN_LIFETIME)
+        return {"mfa_required": True, "challenge_token": str(token)}
+
+
+class MFASetupConfirmSerializer(serializers.Serializer):
+    code = serializers.CharField(max_length=8)
+
+
+class MFAVerifySerializer(serializers.Serializer):
+    code = serializers.CharField(required=False, allow_blank=True, max_length=8)
+    backup_code = serializers.CharField(required=False, allow_blank=True, max_length=20)
+
+    def validate(self, attrs):
+        if not attrs.get("code") and not attrs.get("backup_code"):
+            raise serializers.ValidationError("Provide either `code` or `backup_code`.")
+        return attrs
 
 
 class ForgotPasswordSerializer(serializers.Serializer):

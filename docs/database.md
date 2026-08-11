@@ -36,8 +36,16 @@ role-assignment table; the spec names exactly these 4 roles with fixed
 capabilities. A DB `CheckConstraint` (`super_admin_has_no_tenant`) enforces
 that super admins never have a `tenant_id` and non-super-admins always do.
 Also carries account-lockout bookkeeping (`failed_login_attempts`,
-`locked_until` — 5 failures locks for 30 minutes) and
-`accounts.PasswordResetToken` for the forgot/reset-password flow.
+`locked_until` — 5 failures locks for 30 minutes, shared with wrong-MFA-
+code attempts too), `last_login_ip`/`last_login_user_agent` (stamped on
+every successful MFA challenge), and `accounts.PasswordResetToken` for
+the forgot/reset-password flow. `mfa_enabled` + `mfa_secret_encrypted`
+(Fernet-encrypted via `core.crypto`, exposed only through the
+`user.mfa_secret` property — never serialized) back MFA, required for
+every role; see `docs/mfa.md`. `accounts.MFABackupCode`: `user` (FK),
+`code_hash` (SHA-256 — single-use random codes, not a password),
+`used_at` (nullable — set once consumed, checked to reject reuse); one
+row per backup code, 10 generated at MFA enrollment.
 
 **Staff management** (`/api/v1/staff/`, spec section 6's "Business Owner can manage
 staff") adds no new model — it's CRUD on `accounts.User` scoped to the

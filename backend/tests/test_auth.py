@@ -10,7 +10,14 @@ from .conftest import auth_client
 
 @pytest.mark.django_db
 class TestLogin:
-    def test_login_success_returns_tokens_and_claims(self, api_client, tenant_a):
+    def test_login_success_prompts_mfa_setup_for_a_fresh_user(self, api_client, tenant_a):
+        """
+        MFA is required for every role (docs/mfa.md) — login never returns
+        real tokens directly. A fresh user (no TOTP enrolled yet) gets a
+        setup_token; see tests/test_mfa.py for the full enrollment/verify
+        flow and `auth_client()` (tests/conftest.py) for how every other
+        test transparently completes it to get a real access token.
+        """
         _, _, owner_a = tenant_a
         resp = api_client.post(
             "/api/v1/auth/login/",
@@ -18,9 +25,25 @@ class TestLogin:
             format="json",
         )
         assert resp.status_code == 200
-        assert "access" in resp.data and "refresh" in resp.data
-        assert resp.data["user"]["role"] == "business_owner"
-        assert resp.data["user"]["tenant_id"] == str(owner_a.tenant_id)
+        assert resp.data["mfa_setup_required"] is True
+        assert "setup_token" in resp.data
+        assert "access" not in resp.data and "refresh" not in resp.data
+
+    def test_login_success_for_enrolled_user_prompts_mfa_challenge(self, api_client, tenant_a):
+        from .conftest import enroll_mfa
+
+        _, _, owner_a = tenant_a
+        enroll_mfa(owner_a)
+
+        resp = api_client.post(
+            "/api/v1/auth/login/",
+            {"email": owner_a.email, "password": "OwnerSecret1!"},
+            format="json",
+        )
+        assert resp.status_code == 200
+        assert resp.data["mfa_required"] is True
+        assert "challenge_token" in resp.data
+        assert "access" not in resp.data
 
     def test_login_wrong_password_fails(self, api_client, tenant_a):
         _, _, owner_a = tenant_a

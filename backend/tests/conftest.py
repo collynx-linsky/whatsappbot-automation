@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+import pyotp
 import pytest
 from django.core.cache import cache
 from rest_framework.test import APIClient
@@ -103,11 +104,57 @@ def product_b(tenant_b):
 
 
 def auth_client(api_client, email, password):
+    """
+    Logs in AND completes MFA — required for every role, no exceptions
+    (see docs/mfa.md) — so the client this returns carries a real, fully
+    -authenticated access token, exactly like a real client would end up
+    with. `POST /api/v1/auth/login/` never returns one directly anymore;
+    it returns either a `setup_token` (first login — this helper enrolls
+    TOTP with a fresh secret, computes a valid code via `pyotp`, and
+    confirms) or a `challenge_token` (already enrolled — computes a valid
+    code against the user's real stored secret and verifies). Either path
+    ends with a real access token, same as production.
+    """
     resp = api_client.post(
         "/api/v1/auth/login/", {"email": email, "password": password}, format="json"
     )
     assert resp.status_code == 200, resp.data
-    token = resp.data["access"]
+
+    if resp.data.get("mfa_setup_required"):
+        api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['setup_token']}")
+        setup_resp = api_client.post("/api/v1/auth/mfa/setup/")
+        assert setup_resp.status_code == 200, setup_resp.data
+        code = pyotp.TOTP(setup_resp.data["secret"]).now()
+        confirm_resp = api_client.post(
+            "/api/v1/auth/mfa/setup/confirm/", {"code": code}, format="json"
+        )
+        assert confirm_resp.status_code == 200, confirm_resp.data
+        token = confirm_resp.data["access"]
+    else:
+        assert resp.data.get("mfa_required"), resp.data
+        user = User.objects.get(email__iexact=email)
+        code = pyotp.TOTP(user.mfa_secret).now()
+        api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {resp.data['challenge_token']}")
+        verify_resp = api_client.post("/api/v1/auth/mfa/verify/", {"code": code}, format="json")
+        assert verify_resp.status_code == 200, verify_resp.data
+        token = verify_resp.data["access"]
+
     api_client.token = token
     api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
     return api_client
+
+
+def enroll_mfa(user) -> str:
+    """
+    Test-only shortcut: enrolls `user` in MFA directly (bypassing the
+    setup/confirm API round trip) with a fresh secret, returning it so
+    the caller can compute valid codes. For tests that specifically
+    exercise the *already-enrolled* login path or MFA-specific edge cases
+    (wrong code, backup codes, lockout) without needing the enrollment
+    flow itself to be part of the test.
+    """
+    secret = pyotp.random_base32()
+    user.mfa_secret = secret
+    user.mfa_enabled = True
+    user.save(update_fields=["mfa_secret_encrypted", "mfa_enabled"])
+    return secret

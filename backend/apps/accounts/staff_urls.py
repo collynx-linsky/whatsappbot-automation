@@ -15,4 +15,5 @@ app_name = "staff"
 urlpatterns = [
     path("", views.StaffListCreateView.as_view(), name="list-create"),
     path("<uuid:pk>/", views.StaffDetailView.as_view(), name="detail"),
+    path("<uuid:pk>/mfa-reset/", views.MFAResetView.as_view(), name="mfa-reset"),
 ]

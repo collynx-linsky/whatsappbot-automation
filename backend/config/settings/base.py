@@ -151,9 +151,11 @@ AUTH_PASSWORD_VALIDATORS = [
 
 # ── REST Framework ────────────────────────────────────────────
 REST_FRAMEWORK = {
-    "DEFAULT_AUTHENTICATION_CLASSES": (
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
-    ),
+    # core.authentication.FullAccessJWTAuthentication, not plain
+    # JWTAuthentication — refuses any token minted for the MFA setup/
+    # challenge flow (apps.accounts.mfa) platform-wide, regardless of
+    # which permission_classes a given view declares. See docs/mfa.md.
+    "DEFAULT_AUTHENTICATION_CLASSES": ("core.authentication.FullAccessJWTAuthentication",),
     "DEFAULT_PERMISSION_CLASSES": ("rest_framework.permissions.IsAuthenticated",),
     "DEFAULT_RENDERER_CLASSES": ("rest_framework.renderers.JSONRenderer",),
     "DEFAULT_PARSER_CLASSES": (
@@ -191,6 +193,14 @@ REST_FRAMEWORK = {
         "ai_test": env("THROTTLE_RATE_AI_TEST", default="20/hour"),
         "knowledge_upload": env("THROTTLE_RATE_KNOWLEDGE_UPLOAD", default="30/hour"),
         "campaign_send": env("THROTTLE_RATE_CAMPAIGN_SEND", default="10/hour"),
+        # A 6-digit TOTP code has only 1,000,000 possibilities, repeating
+        # every 30s — without a tight, IP-independent-of-account cap here,
+        # brute-forcing it is genuinely feasible even with the shared
+        # account-lockout counter (5 wrong attempts / 30 min). Login gets
+        # its own scope too, on top of the existing lockout, as a second
+        # independent layer against distributed credential-stuffing.
+        "mfa_verify": env("THROTTLE_RATE_MFA_VERIFY", default="10/hour"),
+        "login": env("THROTTLE_RATE_LOGIN", default="30/hour"),
     },
 }
 
@@ -299,6 +309,13 @@ WHATSAPP_GRAPH_API_BASE_URL = env(
 # Fernet key encrypting WhatsAppAccount.access_token at rest — generate
 # with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`.
 WHATSAPP_TOKEN_ENCRYPTION_KEY = env("WHATSAPP_TOKEN_ENCRYPTION_KEY", default="")
+# Generic secret-at-rest encryption key (core.crypto) — WhatsApp access
+# tokens, MFA TOTP secrets, and any future per-record secret. Defaults to
+# WHATSAPP_TOKEN_ENCRYPTION_KEY so existing .env files / already-encrypted
+# data keep working unchanged; set FIELD_ENCRYPTION_KEY explicitly in .env
+# to use a different key going forward (e.g. to rotate independently of
+# the WhatsApp-specific key name this predates).
+FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY", default=WHATSAPP_TOKEN_ENCRYPTION_KEY)
 
 # ── Object Storage (optional — local disk by default) ──────────
 USE_S3 = env.bool("USE_S3", default=False)

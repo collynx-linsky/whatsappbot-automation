@@ -15,10 +15,23 @@
   dev/prod).
 - Account lockout: 5 failed logins locks the account for 30 minutes
   (`User.increment_failed_login` / `is_locked`), reset on a successful
-  login. Verified live and by `tests/test_auth.py`.
+  login. Verified live and by `tests/test_auth.py`. The same counter is
+  shared with wrong MFA codes (below) — five wrong attempts of *any*
+  authentication factor locks the account.
 - Forgot/reset password: single-use, time-limited (1 hour)
   `PasswordResetToken`; `POST /auth/forgot-password/` always returns 200
   regardless of whether the email exists (no account-existence oracle).
+- **MFA (TOTP) is required for every role, no exceptions** — see
+  `docs/mfa.md` for the full design (why two intermediate "purpose"-
+  tagged token types instead of a session flag, the setup/challenge
+  flows, backup codes, three-tier recovery). `POST /api/v1/auth/login/`
+  never returns a real access/refresh pair by itself anymore.
+- Login/device visibility: `User.last_login_ip` and
+  `last_login_user_agent` are recorded on every successful MFA challenge
+  (`apps.accounts.views.MFAVerifyView`) — enough to notice "this login
+  came from an unexpected IP/browser" without building a full session-
+  management UI this phase. No concurrent-session limiting or device
+  revocation list yet (flagged below).
 
 ## Authorization
 
@@ -64,7 +77,7 @@ response, proven by testing the actual rendered response body.
 (`THROTTLE_RATE_ANON`/`THROTTLE_RATE_USER` in `.env`, defaulting to
 `100/hour`/`3000/hour`), plus `ScopedRateThrottle` — a no-op on any view
 that doesn't set `throttle_scope`, so listing it as a platform-wide
-default is safe. Four views set `throttle_scope`, each independently
+default is safe. Six views set `throttle_scope`, each independently
 tunable via `.env` (`THROTTLE_RATE_<SCOPE>`):
 
 | Scope | View | Default rate | Why |
@@ -73,6 +86,8 @@ tunable via `.env` (`THROTTLE_RATE_<SCOPE>`):
 | `ai_test` | `AITestView` | `20/hour` | Real provider API cost once `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` is set — see `docs/ai.md`. |
 | `knowledge_upload` | `KnowledgeDocumentListCreateView` (`POST` only — `GET` deliberately excluded via `get_throttles()`, see `apps.knowledge.views`) | `30/hour` | Real embedding-provider API cost once configured — see `docs/rag.md`. |
 | `campaign_send` | `CampaignSendView` | `10/hour` | Messages real customers — the most consequential action in this API, both in cost and impact. |
+| `login` | `LoginView` | `30/hour` | A second, IP-keyed layer against distributed credential-stuffing, independent of the per-account lockout counter above (which only kicks in per *account*, not per source IP). |
+| `mfa_verify` | `MFASetupConfirmView`, `MFAVerifyView` | `10/hour` | A 6-digit TOTP code has only 1,000,000 possibilities, repeating every 30s — this is the primary defense against brute-forcing it, on top of the shared account-lockout counter. See `docs/mfa.md`. |
 
 **Live-verified, not just under `pytest`**: 20 real consecutive requests
 to `/api/v1/ai/test/` against a running dev server (real Redis-backed
@@ -134,11 +149,12 @@ existing transport-level `MAX_UPLOAD_SIZE_MB` bound. `MessageAttachment`
 user creation (signal), tenant onboarding, tenant suspend/activate,
 product create/update, order creation and status changes, staff added,
 every AI→human handoff (`AI_HANDOFF`, metadata records the reason —
-keyword match, low confidence, provider error, or missing API key), and
-— added this phase, closing a real gap flagged in an earlier version of
-this doc — `AI_SETTINGS_UPDATED`, `KNOWLEDGE_DOCUMENT_UPLOADED`,
-`WHATSAPP_ACCOUNT_CONNECTED`, `CAMPAIGN_SENT`, and `INVOICE_GENERATED`.
-Every future administrative action should call
+keyword match, low confidence, provider error, or missing API key),
+`AI_SETTINGS_UPDATED`, `KNOWLEDGE_DOCUMENT_UPLOADED`,
+`WHATSAPP_ACCOUNT_CONNECTED`, `CAMPAIGN_SENT`, `INVOICE_GENERATED`, and
+— MFA — `MFA_ENABLED` (a user completes enrollment) and `MFA_RESET`
+(a Business Owner or Super Admin resets someone's MFA; metadata records
+the target's email). Every future administrative action should call
 `AuditLog.log(action=..., user=..., tenant=..., obj=...)` from its
 service/view layer as new apps land — this is a platform-wide
 requirement (spec section 19), not per-app optional.
@@ -163,3 +179,12 @@ the underlying action succeeds.
   a running dev server all succeeded, the 21st returned a genuine `429`
   (see the Rate limiting section above) — against the real production
   default rate, not a test-only override.
+- MFA end-to-end against a real seeded account's real TOTP secret: login
+  correctly returned a `challenge_token` (never real tokens directly);
+  that token correctly got `401` on a normal endpoint
+  (`/api/v1/customers/`) — proving `core.authentication
+  .FullAccessJWTAuthentication`'s platform-wide rejection, not just a
+  per-view check; a code computed from the real stored secret via
+  `pyotp` correctly returned real access/refresh tokens; the real access
+  token worked against `/api/v1/auth/me/`; a wrong code correctly
+  returned `400`. Full detail in `docs/mfa.md`.

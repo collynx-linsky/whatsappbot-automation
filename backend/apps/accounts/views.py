@@ -6,24 +6,29 @@ from datetime import timedelta
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.mail import send_mail
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from apps.common.models import AuditLog
-from core.permissions import IsBusinessOwner, IsStaffOrAbove
+from core.permissions import IsBusinessOwner, IsMFAPending, IsStaffOrAbove
 
+from . import mfa
 from .models import PasswordResetToken
 from .serializers import (
     CreateStaffSerializer,
     ForgotPasswordSerializer,
     LoginSerializer,
+    MFASetupConfirmSerializer,
+    MFAVerifySerializer,
     ResetPasswordSerializer,
     StaffSerializer,
     UpdateStaffSerializer,
@@ -36,10 +41,165 @@ RESET_TOKEN_TTL = timedelta(hours=1)
 
 
 class LoginView(TokenObtainPairView):
-    """POST /api/v1/auth/login/ — email + password -> access/refresh tokens."""
+    """
+    POST /api/v1/auth/login/ — email + password. Never returns real
+    tokens directly (MFA is required for every role — see docs/mfa.md);
+    returns `{mfa_setup_required, setup_token}` or `{mfa_required,
+    challenge_token}` instead. See LoginSerializer.
+    """
 
     serializer_class = LoginSerializer
     permission_classes = [AllowAny]
+    throttle_scope = "login"
+
+
+class MFASetupView(APIView):
+    """
+    POST /api/v1/auth/mfa/setup/ — first login only (`setup_token` from
+    `LoginView`). Generates a fresh TOTP secret and returns it plus a
+    provisioning URI for the frontend to render as a QR code (this API
+    doesn't render images — see docs/mfa.md). Calling this again before
+    confirming discards the previous unconfirmed secret; harmless, since
+    nothing was ever enrolled with it.
+    """
+
+    authentication_classes = [JWTAuthentication]  # accepts the purpose-tagged setup token
+    permission_classes = [IsMFAPending]
+    mfa_purpose = "mfa_setup"
+
+    def post(self, request):
+        user = request.user
+        secret = mfa.generate_secret()
+        user.mfa_secret = secret
+        user.save(update_fields=["mfa_secret_encrypted"])
+        return Response({"secret": secret, "provisioning_uri": mfa.provisioning_uri(user, secret)})
+
+
+class MFASetupConfirmView(APIView):
+    """
+    POST /api/v1/auth/mfa/setup/confirm/ {"code": "123456"} — completes
+    enrollment. On success: `mfa_enabled=True`, 10 backup codes generated
+    and returned **once** (plaintext — only the hash is ever stored; see
+    apps.accounts.mfa.store_backup_codes), and real access/refresh tokens
+    issued — this is the only way a first-time user actually gets in.
+    """
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsMFAPending]
+    mfa_purpose = "mfa_setup"
+    throttle_scope = "mfa_verify"
+
+    def post(self, request):
+        user = request.user
+        serializer = MFASetupConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        if not user.mfa_secret:
+            raise ValidationError("Call /api/v1/auth/mfa/setup/ first to generate a secret.")
+        if not mfa.verify_totp(user.mfa_secret, serializer.validated_data["code"]):
+            user.increment_failed_login()
+            raise ValidationError("Incorrect code.")
+
+        user.reset_failed_login()
+        user.mfa_enabled = True
+        user.save(update_fields=["mfa_enabled"])
+
+        backup_codes = mfa.generate_backup_codes()
+        mfa.store_backup_codes(user, backup_codes)
+
+        AuditLog.log(
+            action="MFA_ENABLED",
+            user=user,
+            tenant=user.tenant,
+            obj=user,
+            ip_address=request.META.get("REMOTE_ADDR"),
+        )
+
+        return Response({**mfa.issue_tokens(user), "backup_codes": backup_codes})
+
+
+class MFAVerifyView(APIView):
+    """
+    POST /api/v1/auth/mfa/verify/ {"code": "123456"} or {"backup_code":
+    "ab12cd34-ef56ab78"} — second login step for an already-enrolled user
+    (`challenge_token` from `LoginView`). Wrong code/backup code counts
+    against the same lockout counter a wrong password does
+    (User.increment_failed_login) — brute-forcing a 6-digit TOTP code is a
+    real risk without this, paired with tight rate limiting on this
+    endpoint (docs/security.md).
+    """
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsMFAPending]
+    mfa_purpose = "mfa_challenge"
+    throttle_scope = "mfa_verify"
+
+    def post(self, request):
+        user = request.user
+        serializer = MFAVerifySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        valid = (
+            mfa.verify_totp(user.mfa_secret, data["code"])
+            if data.get("code")
+            else mfa.verify_and_consume_backup_code(user, data["backup_code"])
+        )
+        if not valid:
+            user.increment_failed_login()
+            raise ValidationError("Incorrect code.")
+
+        user.reset_failed_login()
+        user.last_login = timezone.now()
+        user.last_login_ip = request.META.get("REMOTE_ADDR")
+        user.last_login_user_agent = request.META.get("HTTP_USER_AGENT", "")[:255]
+        user.save(update_fields=["last_login", "last_login_ip", "last_login_user_agent"])
+
+        return Response(mfa.issue_tokens(user))
+
+
+class MFAResetView(APIView):
+    """
+    POST /api/v1/staff/{id}/mfa-reset/ — Business Owner (own tenant) or
+    Super Admin (any tenant, for supporting a Business Owner who locked
+    themselves out). "Lost the device AND the backup codes" recovery path
+    — clears mfa_enabled/secret/backup codes, so the target re-enrolls
+    from scratch on their next login. Never self-service beyond that: a
+    Business Owner still can't reset another tenant's owner or a super
+    admin. See `manage.py reset_mfa` for the platform's own break-glass
+    path if a super admin locks themselves out (docs/mfa.md).
+    """
+
+    permission_classes = [IsBusinessOwner]
+
+    def post(self, request, pk):
+        actor = request.user
+        queryset = (
+            User.objects.all()
+            if actor.is_superuser
+            else User.objects.filter(tenant_id=actor.tenant_id)
+        )
+        target = get_object_or_404(queryset, pk=pk)
+        if (
+            target.role in (User.Role.BUSINESS_OWNER, User.Role.SUPER_ADMIN)
+            and not actor.is_superuser
+        ):
+            raise ValidationError("Cannot reset the business owner's MFA via this endpoint.")
+
+        target.mfa_enabled = False
+        target.mfa_secret_encrypted = ""
+        target.save(update_fields=["mfa_enabled", "mfa_secret_encrypted"])
+        target.mfa_backup_codes.all().delete()
+
+        AuditLog.log(
+            action="MFA_RESET",
+            user=actor,
+            tenant=target.tenant,
+            obj=target,
+            metadata={"target_email": target.email},
+            ip_address=request.META.get("REMOTE_ADDR"),
+        )
+        return Response({"detail": "MFA has been reset. This user must re-enroll on next login."})
 
 
 class LogoutView(APIView):

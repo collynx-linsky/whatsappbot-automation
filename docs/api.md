@@ -35,9 +35,15 @@ List endpoints are paginated (`core.pagination.StandardResultsPagination`,
 
 ## Auth — `/api/v1/auth/`
 
+MFA is required for every role, no exceptions — `login/` never returns
+real tokens by itself. See `docs/mfa.md` for the full two-step flow.
+
 | Method | Path | Auth | Notes |
 |---|---|---|---|
-| POST | `login/` | none | `{email, password}` → `{access, refresh, user}`. Locks account after 5 failures. |
+| POST | `login/` | none | `{email, password}` → `{mfa_setup_required, setup_token}` (first login) or `{mfa_required, challenge_token}` (already enrolled). Locks account after 5 failures. Scope-throttled (`login`, default `30/hour`). |
+| POST | `mfa/setup/` | `setup_token` only | Generates a fresh TOTP secret → `{secret, provisioning_uri}`. |
+| POST | `mfa/setup/confirm/` | `setup_token` only | `{code}` → on success, `mfa_enabled=True` + `{access, refresh, backup_codes}` (10 codes, shown once). Scope-throttled (`mfa_verify`, default `10/hour`). |
+| POST | `mfa/verify/` | `challenge_token` only | `{code}` or `{backup_code}` → `{access, refresh}`. Wrong code counts toward the same 5-attempt lockout as a wrong password. Scope-throttled (`mfa_verify`). |
 | POST | `refresh/` | none | `{refresh}` → `{access}` (simplejwt default view). |
 | POST | `logout/` | required | `{refresh}` → blacklists it. |
 | GET | `me/` | required | Current user's own profile. |
@@ -49,6 +55,10 @@ List endpoints are paginated (`core.pagination.StandardResultsPagination`,
 Team roster for the caller's own tenant. Separate from `/auth/` — this is
 user *management*, not login. See `docs/database.md` for the role rules
 enforced.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| POST | `<uuid:pk>/mfa-reset/` | Business Owner (own tenant) / Super Admin (any) | Clears the target's MFA enrollment — they re-enroll from scratch on next login. See `docs/mfa.md`'s recovery tiers. |
 
 | Method | Path | Auth | Notes |
 |---|---|---|---|

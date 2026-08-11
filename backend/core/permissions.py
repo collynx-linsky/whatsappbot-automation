@@ -80,3 +80,26 @@ class IsOwnerOfObject(BasePermission):
             return True
         tenant_id = getattr(obj, "tenant_id", None)
         return tenant_id is not None and tenant_id == request.user.tenant_id
+
+
+class IsMFAPending(BasePermission):
+    """
+    Only the three MFA setup/challenge endpoints use this (see
+    apps.accounts.mfa_views) — they authenticate via the plain
+    `rest_framework_simplejwt.authentication.JWTAuthentication` (not the
+    platform default `core.authentication.FullAccessJWTAuthentication`,
+    which refuses purpose-tagged tokens outright), and this permission
+    then checks the token actually carries the *specific* purpose this
+    view expects (`view.mfa_purpose`) — a "mfa_setup" token can't be used
+    to call the "mfa_challenge" endpoint or vice versa, and a real,
+    already-fully-authenticated access token (no `purpose` claim at all)
+    is rejected here too, not just tokens for the wrong stage.
+    """
+
+    def has_permission(self, request, view):
+        purpose = getattr(view, "mfa_purpose", None)
+        if not purpose or not request.user or not request.user.is_authenticated:
+            return False
+        if not request.auth:
+            return False
+        return request.auth.get("purpose") == purpose

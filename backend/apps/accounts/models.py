@@ -12,6 +12,8 @@ from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, Permis
 from django.db import models
 from django.utils import timezone
 
+from core.crypto import decrypt_secret, encrypt_secret
+
 
 class UserManager(BaseUserManager):
 
@@ -69,6 +71,19 @@ class User(AbstractBaseUser, PermissionsMixin):
     locked_until = models.DateTimeField(null=True, blank=True)
     last_login_ip = models.GenericIPAddressField(null=True, blank=True)
 
+    # MFA (TOTP) — required for every role, no exceptions (see docs/mfa.md).
+    # `failed_login_attempts`/`locked_until` above are deliberately reused
+    # for MFA-code failures too (increment_failed_login is called from the
+    # MFA verify endpoint on a wrong code, same as a wrong password) — a
+    # single shared lockout counter for "too many wrong authentication
+    # attempts of any kind," rather than a second, parallel bookkeeping
+    # scheme with its own edge cases.
+    mfa_enabled = models.BooleanField(default=False)
+    mfa_secret_encrypted = models.CharField(
+        max_length=255, blank=True, help_text="Fernet-encrypted TOTP secret — see core.crypto."
+    )
+    last_login_user_agent = models.CharField(max_length=255, blank=True)
+
     date_joined = models.DateTimeField(default=timezone.now)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -120,6 +135,15 @@ class User(AbstractBaseUser, PermissionsMixin):
             self.locked_until = None
             self.save(update_fields=["failed_login_attempts", "locked_until"])
 
+    @property
+    def mfa_secret(self) -> str:
+        """Decrypted TOTP secret — never serialized, only read by apps.accounts.mfa."""
+        return decrypt_secret(self.mfa_secret_encrypted) if self.mfa_secret_encrypted else ""
+
+    @mfa_secret.setter
+    def mfa_secret(self, value: str):
+        self.mfa_secret_encrypted = encrypt_secret(value) if value else ""
+
 
 class PasswordResetToken(models.Model):
     """One-time password reset tokens (spec: Forgot/Reset password flow)."""
@@ -137,3 +161,31 @@ class PasswordResetToken(models.Model):
 
     def is_valid(self) -> bool:
         return self.used_at is None and self.expires_at > timezone.now()
+
+
+class MFABackupCode(models.Model):
+    """
+    One-time MFA recovery codes, generated in a batch of 10 when a user
+    confirms TOTP setup (apps.accounts.mfa.generate_backup_codes) — for
+    "I have my backup codes but not my authenticator app" recovery,
+    without needing an admin to reset MFA entirely. Only the SHA-256 hash
+    is stored (single-use random codes, not passwords someone needs to
+    remember — a fast hash is the right tool here, not a slow one).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="mfa_backup_codes")
+    code_hash = models.CharField(max_length=64, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "accounts_mfa_backup_code"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "code_hash"], name="unique_backup_code_hash_per_user"
+            ),
+        ]
+
+    def __str__(self):
+        return f"Backup code for {self.user.email} ({'used' if self.used_at else 'unused'})"
