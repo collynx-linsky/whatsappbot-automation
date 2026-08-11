@@ -4,9 +4,20 @@
 // on 401 after a silent refresh, and normalizes the backend's error
 // envelope ({status, message, errors, code}) into a typed ApiError.
 import type {
+  AISettings,
+  AITestResult,
   ApiErrorEnvelope,
   Business,
+  BusinessDashboard,
+  Campaign,
+  CampaignRecipient,
+  CampaignStatus,
   Conversation,
+  CreateCampaignPayload,
+  CreateKnowledgeDocumentPayload,
+  CreateMessageTemplatePayload,
+  CreateSegmentPayload,
+  CreateWhatsAppAccountPayload,
   ConversationAssignment,
   ConversationStatus,
   CreateConversationPayload,
@@ -15,7 +26,12 @@ import type {
   CreateStaffPayload,
   CreateStaffResponse,
   Customer,
+  GenerateInvoicePayload,
+  Invoice,
+  KnowledgeChunk,
+  KnowledgeDocument,
   LoginResponse,
+  MessageTemplate,
   Message,
   MessageType,
   MFASetupConfirmResponse,
@@ -26,11 +42,18 @@ import type {
   Order,
   OrderStatus,
   Paginated,
+  PlatformDashboard,
   Product,
+  PublicPlan,
+  Segment,
+  SegmentPreview,
   Session,
   StaffMember,
   Tenant,
+  UpdateAISettingsPayload,
+  UsageSummary,
   User,
+  WhatsAppAccount,
 } from "@/types";
 import { clearSession, getAccessToken, getRefreshToken, setAccessToken } from "./auth";
 
@@ -83,10 +106,15 @@ interface RequestOptions extends RequestInit {
 
 export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { auth = true, headers, ...rest } = options;
+  // A FormData body (file upload) must NOT get an explicit Content-Type —
+  // the browser sets multipart/form-data with the right boundary itself.
+  // Every other caller in this codebase sends JSON, so this only changes
+  // behavior for the one FormData case.
+  const isFormData = typeof FormData !== "undefined" && rest.body instanceof FormData;
 
   const doFetch = async (token: string | null) => {
     const finalHeaders: HeadersInit = {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...headers,
       ...(auth && token ? { Authorization: `Bearer ${token}` } : {}),
     };
@@ -104,11 +132,22 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     }
   }
 
-  if (res.status === 204) return undefined as T;
-
-  const data = await res.json();
+  // Read as text first, not res.json() directly — 204 isn't the only
+  // legitimate empty-body success response in this API (e.g. logout's
+  // 205 Reset Content also has none), and calling .json() on an empty
+  // body throws "Unexpected end of JSON input" rather than returning
+  // undefined. A real prior bug: this crashed logout() with no try/catch
+  // above it to swallow it, so the redirect to /login never ran — caught
+  // by the Playwright e2e suite, not by eslint/tsc/build. See docs/testing.md.
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : undefined;
   if (!res.ok) {
-    throw new ApiError(res.status, data as ApiErrorEnvelope);
+    throw new ApiError(res.status, (data as ApiErrorEnvelope) ?? {
+      status: "error",
+      message: `Request failed with status ${res.status}.`,
+      errors: {},
+      code: "unknown_error",
+    });
   }
   return data as T;
 }
@@ -145,9 +184,15 @@ async function pendingTokenFetch<T>(
       ...options.headers,
     },
   });
-  const data = await res.json();
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : undefined;
   if (!res.ok) {
-    throw new ApiError(res.status, data as ApiErrorEnvelope);
+    throw new ApiError(res.status, (data as ApiErrorEnvelope) ?? {
+      status: "error",
+      message: `Request failed with status ${res.status}.`,
+      errors: {},
+      code: "unknown_error",
+    });
   }
   return data as T;
 }
@@ -217,6 +262,15 @@ export function resetPassword(token: string, new_password: string): Promise<{ de
     auth: false,
     body: JSON.stringify({ token, new_password }),
   });
+}
+
+// ── Public marketing site ───────────────────────────────────
+// No auth — this is what the public "/" landing page's pricing section
+// reads, so real, live Plan data shows up there instead of numbers
+// hardcoded in the frontend that could drift from what's actually
+// configured.
+export function getPublicPlans(): Promise<Paginated<PublicPlan>> {
+  return apiFetch<Paginated<PublicPlan>>("/tenants/plans/public/", { auth: false });
 }
 
 // ── Tenants (super admin) ───────────────────────────────────
@@ -392,5 +446,196 @@ export function sendMessage(
   return apiFetch<Message>("/messages/", {
     method: "POST",
     body: JSON.stringify({ conversation, sender_type: "staff", content, message_type: messageType }),
+  });
+}
+
+// ── Analytics ────────────────────────────────────────────────
+// Every number is computed live server-side on each request — no polling
+// needed here (unlike the inbox), the caller just re-fetches on demand
+// (e.g. when the date range changes).
+export function getAnalyticsDashboard(params?: {
+  start?: string;
+  end?: string;
+}): Promise<BusinessDashboard> {
+  return apiFetch<BusinessDashboard>(`/analytics/dashboard/${toQueryString(params ?? {})}`);
+}
+
+export function getPlatformAnalytics(): Promise<PlatformDashboard> {
+  return apiFetch<PlatformDashboard>("/analytics/platform/");
+}
+
+// ── AI assistant settings ───────────────────────────────────
+// Singleton per tenant — no id in the URL, unlike every other tenant-scoped
+// resource in this API (matches the backend: lazily created on first GET).
+export function getAISettings(): Promise<AISettings> {
+  return apiFetch<AISettings>("/ai/settings/");
+}
+
+export function updateAISettings(payload: UpdateAISettingsPayload): Promise<AISettings> {
+  return apiFetch<AISettings>("/ai/settings/", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+// Onboarding step 7 "test your AI" — runs the real handoff-check +
+// prompt-building logic against ad-hoc text, without touching any real
+// Conversation/Message. Throttled server-side (real provider cost).
+export function testAI(message: string): Promise<AITestResult> {
+  return apiFetch<AITestResult>("/ai/test/", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+}
+
+// ── Knowledge base (RAG) ────────────────────────────────────
+export function listKnowledgeDocuments(): Promise<Paginated<KnowledgeDocument>> {
+  return apiFetch<Paginated<KnowledgeDocument>>("/knowledge/documents/");
+}
+
+// multipart/form-data, not JSON — the only file upload in this codebase so
+// far (see apiFetch's FormData handling). Processing (extract → chunk →
+// embed) runs async via Celery; the response comes back before it finishes,
+// so the caller should poll listKnowledgeDocuments() to watch status settle.
+export function createKnowledgeDocument(
+  payload: CreateKnowledgeDocumentPayload,
+): Promise<KnowledgeDocument> {
+  const form = new FormData();
+  form.set("business", payload.business);
+  form.set("title", payload.title);
+  form.set("source_type", payload.source_type);
+  if (payload.file) form.set("file", payload.file);
+  if (payload.raw_text) form.set("raw_text", payload.raw_text);
+  return apiFetch<KnowledgeDocument>("/knowledge/documents/", {
+    method: "POST",
+    body: form,
+  });
+}
+
+export function deleteKnowledgeDocument(id: string): Promise<void> {
+  return apiFetch<void>(`/knowledge/documents/${id}/`, { method: "DELETE" });
+}
+
+export function listKnowledgeChunks(documentId: string): Promise<Paginated<KnowledgeChunk>> {
+  return apiFetch<Paginated<KnowledgeChunk>>(`/knowledge/documents/${documentId}/chunks/`);
+}
+
+// ── Marketing campaigns ──────────────────────────────────────
+// Templates
+export function listTemplates(params?: {
+  status?: string;
+  category?: string;
+}): Promise<Paginated<MessageTemplate>> {
+  return apiFetch<Paginated<MessageTemplate>>(`/campaigns/templates/${toQueryString(params ?? {})}`);
+}
+
+export function createTemplate(payload: CreateMessageTemplatePayload): Promise<MessageTemplate> {
+  return apiFetch<MessageTemplate>("/campaigns/templates/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateTemplate(
+  id: string,
+  payload: Partial<Pick<MessageTemplate, "status" | "whatsapp_template_name" | "rejection_reason">>,
+): Promise<MessageTemplate> {
+  return apiFetch<MessageTemplate>(`/campaigns/templates/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+// Segments
+export function listSegments(): Promise<Paginated<Segment>> {
+  return apiFetch<Paginated<Segment>>("/campaigns/segments/");
+}
+
+export function createSegment(payload: CreateSegmentPayload): Promise<Segment> {
+  return apiFetch<Segment>("/campaigns/segments/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteSegment(id: string): Promise<void> {
+  return apiFetch<void>(`/campaigns/segments/${id}/`, { method: "DELETE" });
+}
+
+export function previewSegment(id: string): Promise<SegmentPreview> {
+  return apiFetch<SegmentPreview>(`/campaigns/segments/${id}/preview/`);
+}
+
+// Campaigns
+export function listCampaigns(params?: { status?: CampaignStatus }): Promise<Paginated<Campaign>> {
+  return apiFetch<Paginated<Campaign>>(`/campaigns/${toQueryString(params ?? {})}`);
+}
+
+export function createCampaign(payload: CreateCampaignPayload): Promise<Campaign> {
+  return apiFetch<Campaign>("/campaigns/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// Queues the real send (async, via Celery) — the returned Campaign reflects
+// whatever state it's in the instant the queue call returns (usually
+// "scheduled"), not the final outcome. Poll listCampaigns() to watch it
+// settle to sent/failed, same pattern as the knowledge base's processing.
+export function sendCampaign(id: string): Promise<Campaign> {
+  return apiFetch<Campaign>(`/campaigns/${id}/send/`, { method: "POST" });
+}
+
+export function listCampaignRecipients(id: string): Promise<Paginated<CampaignRecipient>> {
+  return apiFetch<Paginated<CampaignRecipient>>(`/campaigns/${id}/recipients/`);
+}
+
+// ── Billing ──────────────────────────────────────────────────
+export function getUsageSummary(): Promise<UsageSummary> {
+  return apiFetch<UsageSummary>("/billing/usage/");
+}
+
+export function listInvoices(): Promise<Paginated<Invoice>> {
+  return apiFetch<Paginated<Invoice>>("/billing/invoices/");
+}
+
+// Super admin only — no automated payment gateway/webhook exists to
+// trigger this, so it's a manual per-tenant action (see docs/billing.md).
+export function generateInvoice(payload: GenerateInvoicePayload): Promise<Invoice> {
+  return apiFetch<Invoice>("/billing/invoices/generate/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// ── WhatsApp account connection ─────────────────────────────
+export function listWhatsAppAccounts(): Promise<Paginated<WhatsAppAccount>> {
+  return apiFetch<Paginated<WhatsAppAccount>>("/whatsapp/accounts/");
+}
+
+export function createWhatsAppAccount(
+  payload: CreateWhatsAppAccountPayload,
+): Promise<WhatsAppAccount> {
+  return apiFetch<WhatsAppAccount>("/whatsapp/accounts/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+// Reconnecting with a fresh access_token (e.g. after Meta rotates/revokes
+// it) goes through the same PATCH — the field is write-only and never
+// echoed back, matching the create path.
+export function updateWhatsAppAccount(
+  id: string,
+  payload: Partial<
+    Pick<
+      WhatsAppAccount,
+      "display_name" | "phone_number" | "phone_number_id" | "business_account_id"
+    >
+  > & { access_token?: string },
+): Promise<WhatsAppAccount> {
+  return apiFetch<WhatsAppAccount>(`/whatsapp/accounts/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
   });
 }

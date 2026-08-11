@@ -140,6 +140,12 @@ export default function ProductsPage() {
         { label: "Overview", href: "/dashboard" },
         { label: "Products & Orders", href: "/dashboard/products" },
         { label: "Inbox", href: "/dashboard/inbox" },
+        { label: "AI Assistant", href: "/dashboard/ai" },
+        { label: "Knowledge Base", href: "/dashboard/knowledge" },
+        { label: "Campaigns", href: "/dashboard/campaigns" },
+        { label: "WhatsApp", href: "/dashboard/whatsapp" },
+        { label: "Billing", href: "/dashboard/billing" },
+        { label: "Analytics", href: "/dashboard/analytics" },
       ]}
     >
       <div className="space-y-8">
@@ -150,7 +156,7 @@ export default function ProductsPage() {
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Catalog
           </h2>
-          <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400">
                 <tr>
@@ -250,7 +256,7 @@ export default function ProductsPage() {
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Orders
           </h2>
-          <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400">
                 <tr>

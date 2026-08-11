@@ -690,6 +690,519 @@ billing frontends, and a WhatsApp-account-connection settings page
 connected — that only affects whether outbound sends actually reach
 Meta, which is a separable, smaller follow-up).
 
+## Done (this session — "Frontend: Analytics dashboards")
+
+User picked this as the next frontend module (over AI settings, knowledge
+base, campaigns/billing — all still backend-only). Both existing analytics
+endpoints (`docs/analytics.md`, Phase "Analytics" above) had zero frontend;
+now both do.
+
+- `types/index.ts`: added `FunnelCounts`, `ConversationCounts`,
+  `MessageCounts`, `OrderRevenue`, `AIPerformance`, `ResponseTime`,
+  `TopQuestion`, `BusinessDashboard` (mirrors `business_dashboard()`
+  exactly), and `TenantCounts`, `UserCounts`, `SignupTrendPoint`,
+  `PlatformDashboard` (mirrors `platform_dashboard()`).
+- `lib/api.ts`: `getAnalyticsDashboard({start?, end?})`,
+  `getPlatformAnalytics()`.
+- No charting library added (matches this codebase's existing
+  no-modal/no-extra-dependency convention) — three small hand-rolled
+  components instead: `components/StatTile.tsx` (headline number, no
+  comparison), `components/BarList.tsx` (horizontal bar list — single
+  emerald hue by default for "one count series across categories," a
+  per-item `color` + `BarListLegend` only where categories are genuinely
+  different entities, e.g. messages by sender type, so color carries
+  identity and never rank), `components/Sparkline.tsx` (minimal SVG
+  line+area for the 30-day signup trend — change-over-time is a line's
+  job, not a bar chart's).
+- New page `app/dashboard/analytics/page.tsx` (staff+, own tenant): date
+  range presets (all time / 7d / 30d / this month) driving the existing
+  `?start=&end=` API params, stat tiles (conversations, messages, AI
+  replies, handoffs, avg response time), the customer funnel, conversations
+  by status, messages by sender (color-coded + legend), order status counts,
+  revenue-by-currency tiles (never summed across currencies, matching the
+  backend's own honesty about multi-currency), and a top-questions table.
+  Added to the shared nav array on `/dashboard`, `/dashboard/products`, and
+  `/dashboard/inbox` (this codebase duplicates the nav array per page rather
+  than centralizing it — followed the existing pattern).
+- `app/admin/page.tsx`: added a "Platform Analytics" section (super admin
+  only, reuses the same `StatTile`/`BarList`/`Sparkline` components) —
+  tenant/business/conversation/message totals, tenants by status, users by
+  role, the 30-day signup-trend sparkline, and platform-wide revenue by
+  currency. No new page/route — `/admin` was already the single super-admin
+  surface.
+- **Verified live against the real running dev server and real seeded
+  data** (not just typecheck/build): rather than driving the full
+  mandatory-MFA login flow over HTTP for a read-only verification, directly
+  invoked `apps.analytics.services.business_dashboard()` (against the real
+  seeded ABC Electronics tenant) and `apps.analytics.platform_services
+  .platform_dashboard()` inside `manage.py shell`, confirmed the printed
+  JSON matches the new TypeScript types key-for-key (funnel stage names,
+  `by_sender_type` keys, `revenue_by_currency`, `signup_trend` shape, etc.);
+  separately confirmed both `GET /api/v1/analytics/dashboard/` and
+  `GET /api/v1/analytics/platform/` are live-routed and correctly
+  auth-gated (`401` unauthenticated) against the real running server.
+  `npx tsc --noEmit`, `npm run lint`, `npm run build` all clean.
+- **Known limitation, stated honestly** (same as every frontend session so
+  far): no browser-automation tool is available in this environment, so the
+  actual rendered layout, bar proportions, dark mode, and date-filter
+  click-through weren't visually clicked through by me — only the HTTP/data
+  contract and build/typecheck/lint were verified. Recommended: run
+  `npm run dev` + `manage.py runserver` and open `/dashboard/analytics` and
+  `/admin` in a real browser once.
+
+Still deferred: AI settings, knowledge base, campaigns, billing frontends,
+and the WhatsApp-account-connection settings page.
+
+## Done (this session — "Frontend: AI assistant settings")
+
+Continued straight into the next module without re-asking (user said
+"proceed") — picked AI assistant settings over knowledge base/campaigns/
+billing since it's the most central missing piece (the product's own name)
+and pairs directly with the inbox's existing `ai_enabled` toggle.
+
+- `types/index.ts`: `AIMode`, `AITone`, `AIProvider`, `AISettings` (mirrors
+  `apps.ai.serializers.AISettingsSerializer` field-for-field),
+  `UpdateAISettingsPayload` (every field except the four read-only ones),
+  `AITestResult`.
+- `lib/api.ts`: `getAISettings()`, `updateAISettings(payload)` — both hit
+  the singleton `/api/v1/ai/settings/` (no id in the URL, matches the
+  backend's per-tenant-singleton design), `testAI(message)` for the
+  onboarding-step-7 "test your AI" endpoint.
+- New page `app/dashboard/ai/page.tsx`: gated client-side to
+  `business_owner`/`manager` (matches the backend's `IsManagerOrAbove`) —
+  staff see a plain notice instead of a failed API call. Sections: Identity
+  (assistant name, language, tone, welcome/fallback messages, optional
+  system prompt override), Behavior (mode, AI-enabled/human-handoff-enabled
+  toggles, confidence threshold, comma-separated handoff keywords), Provider
+  (openai/anthropic + optional model override), and a live "Test Your
+  Assistant" panel that calls the real `/ai/test/` endpoint and renders
+  either a handoff reason (amber) or a reply + confidence (emerald) — no
+  simulated response, whatever the backend actually returns. Added to the
+  shared nav array on all four other dashboard pages.
+- **Verified live against the real running dev server and real seeded
+  data**: confirmed `GET /api/v1/ai/settings/` and `POST /api/v1/ai/test/`
+  are live-routed and `401` unauthenticated; directly invoked
+  `AISettingsSerializer` against the real seeded ABC Electronics
+  `AISettings` row and confirmed every field name/shape matches the new
+  TypeScript type exactly; directly re-invoked the real `wants_human()` +
+  `get_provider()` degraded path (no `OPENAI_API_KEY` configured in this
+  dev environment, same as every earlier AI-phase session) and confirmed
+  it returns exactly `{"handed_off": true, "reason": "openai API key not
+  configured"}` — the literal shape the new Test panel's amber branch
+  renders. `npx tsc --noEmit`, `npm run lint`, `npm run build` all clean.
+- **Known limitation, stated honestly** (same as every frontend session so
+  far): no browser-automation tool available, so the rendered form layout,
+  checkbox/select styling, and the Test panel's two visual branches weren't
+  clicked through by me. Also: since no real OpenAI/Anthropic key is
+  configured in this dev environment, the Test panel's "real reply"
+  (emerald) branch has only been verified by reading the code path, not
+  seen live — only the handoff branch was exercised against real data.
+
+Still deferred: knowledge base, campaigns, billing frontends, and the
+WhatsApp-account-connection settings page.
+
+## Done (this session — "Frontend: Knowledge base (RAG)")
+
+Continued straight into the next module again ("proceed improving the
+frontend") — picked knowledge base since it pairs directly with the AI
+settings page just built (its "grounds the AI's replies" line links
+straight here) and closes out the RAG phase's frontend gap.
+
+- `types/index.ts`: `KnowledgeSourceType`, `KnowledgeDocumentStatus`,
+  `KnowledgeDocument`, `CreateKnowledgeDocumentPayload`, `KnowledgeChunk` —
+  mirror `apps.knowledge.serializers` exactly. Unlike every other
+  tenant-scoped type in this file, `KnowledgeDocument` carries an explicit
+  `business` id (the model FKs to `Business` directly, not just `tenant`).
+- `lib/api.ts`: **first file upload in this codebase.** Extended `apiFetch`
+  to detect a `FormData` body and skip the default
+  `Content-Type: application/json` header (the browser sets the multipart
+  boundary itself) — every existing JSON caller is unaffected.
+  `listKnowledgeDocuments`, `createKnowledgeDocument` (builds the `FormData`
+  — `business`/`title`/`source_type`/`file`/`raw_text`), `deleteKnowledgeDocument`,
+  `listKnowledgeChunks`.
+- New page `app/dashboard/knowledge/page.tsx` (staff+ view, manager+
+  upload/delete, matches the backend's per-method permission split):
+  documents table (title, source type, a status badge, chunk count —
+  explicitly noting "N (M embedded — keyword fallback for the rest)" when
+  `embedded_chunk_count < chunk_count`, matching this backend's honesty
+  about the no-pgvector degraded state from `docs/rag.md`), an inline
+  expandable chunk viewer per row (no modal, matching this codebase's
+  convention), and an upload form that switches between a text source
+  (textarea) and a file source (`.txt`/`.pdf` file input) — the business
+  id is picked up silently via the existing `listBusinesses()` call rather
+  than asking the user to choose one, since onboarding creates exactly one
+  business per tenant. Polls every 5s (same reasoning and cadence pattern
+  as the inbox) since processing runs async via Celery and there's no
+  real-time channel on this backend. Added to the shared nav array on all
+  five other dashboard pages.
+- **Verified live against the real running dev server and real seeded
+  data**, including the new mechanism specifically (not just the parts
+  that repeat prior sessions' patterns):
+  - `GET`/`POST /api/v1/knowledge/documents/` confirmed live-routed and
+    `401` unauthenticated.
+  - Directly serialized a real seeded `KnowledgeDocument` + its
+    `KnowledgeChunk` and confirmed the JSON matches the new TypeScript
+    types exactly, including the real degraded state
+    (`embedded_chunk_count: 0`, `is_embedded: false` — no embedding
+    provider key in this dev environment, same as every earlier
+    RAG-touching session).
+  - **The multipart path specifically** (the actual new risk — everything
+    else here repeats established patterns): rather than fighting through
+    the mandatory-MFA HTTP login flow for a authenticated write, used
+    DRF's `APIClient` with `force_authenticate` as a real seeded business
+    owner and posted the *exact* field set `lib/api.ts`'s
+    `createKnowledgeDocument()` sends (`business`/`title`/`source_type`/
+    `raw_text`, `format="multipart"`) through the real URL routing → view
+    → parser → serializer → Celery-dispatch chain. Got a real `201` with
+    `status: "pending", chunk_count: 0` — this dev server's Celery is real
+    async (not eager), so the response correctly reflects "not processed
+    yet," which is exactly why the page polls. Test document deleted
+    immediately after.
+- **Known limitation, stated honestly** (same as every frontend session so
+  far): no browser-automation tool available, so the actual file-picker
+  interaction, status badge colors, and expandable-row layout weren't
+  clicked through by me. Also: since processing is real async Celery here,
+  actually watching a document transition pending → ready in the browser
+  needs a running `celery worker` process alongside `runserver` — not
+  verified end-to-end through to `ready` in this session (only the
+  synchronous `pending` response and the shape of an already-`ready`
+  seeded document were confirmed separately).
+
+Still deferred: campaigns, billing frontends, and the
+WhatsApp-account-connection settings page.
+
+## Done (this session — "Frontend: Marketing campaigns")
+
+User said "PROCEED" — continued straight into the next module in the
+already-stated order. Campaigns was the largest remaining frontend gap:
+three linked entities (templates → segments → campaigns) instead of one.
+
+- `types/index.ts`: `TemplateCategory`, `TemplateStatus`, `MessageTemplate`,
+  `CreateMessageTemplatePayload`, `SegmentFilters`, `Segment`,
+  `CreateSegmentPayload`, `SegmentPreview`, `CampaignStatus`, `Campaign`,
+  `CreateCampaignPayload`, `CampaignRecipientStatus`, `CampaignRecipient` —
+  mirror `apps.campaigns.serializers` exactly.
+- `lib/api.ts`: full CRUD for templates/segments/campaigns plus
+  `previewSegment`, `sendCampaign`, `listCampaignRecipients`.
+- New page `app/dashboard/campaigns/page.tsx` (staff+ view, manager+
+  create/edit/delete/send — matches the backend's per-method permission
+  split) with three stacked sections:
+  - **Templates**: table + inline per-row edit (status/WhatsApp template
+    name/rejection reason — the exact fields the backend docstring says
+    are "deliberately writable here" since real Meta approval happens
+    outside this system) + a create form with `{{n}}` placeholder syntax
+    called out.
+  - **Segments**: table (customer count, a human-readable filter summary)
+    with an inline "Preview" expand hitting the real no-side-effect preview
+    endpoint, plus checkbox filters for lead status/source and a
+    comma-separated tags field on create.
+  - **Campaigns**: table (status badge, recipient/sent/failed/skipped
+    counts) + Send button (draft/scheduled only) + an inline recipients
+    expand (per-customer outcome, skip/error reason). A warning banner
+    appears on the create form when no template is `approved` yet — a
+    campaign can still be created against a draft template (the backend
+    doesn't block that), but sending it will structurally fail until
+    approval is recorded, so the UI says so up front rather than letting
+    the send fail as a surprise.
+  - Polls every 5s (same reasoning as the knowledge base — campaign sends
+    run async via Celery, no real-time channel exists).
+  - Business id picked up silently via `listBusinesses()`, same pattern as
+    every other business-scoped page.
+- Added to the shared nav array on all six other dashboard pages.
+- **Verified live against the real running dev server and real seeded
+  data**, including the send path specifically:
+  - All three list endpoints confirmed live-routed and `401`
+    unauthenticated.
+  - Directly serialized a real seeded `MessageTemplate`, `Segment`, and
+    `Campaign` (Kijani Foods' seeded "Weekly Promo"/"Opted-in
+    customers"/"Sample Weekly Promo Campaign") and confirmed every field
+    matches the new TypeScript types exactly.
+  - **The send path**: used DRF's `APIClient` with `force_authenticate` as
+    the real seeded Kijani Foods owner and called
+    `POST /api/v1/campaigns/{id}/send/` on that real seeded draft
+    campaign — the exact call `sendCampaign()` makes. Got a real `200`
+    with `status: "scheduled"` (this dev server's Celery is real async,
+    not eager, so the response correctly reflects "queued, not yet
+    processed" — same shape the UI's poll is built to catch). Also called
+    the real recipients endpoint and confirmed the `Paginated<T>` envelope
+    matches exactly.
+  - **Cleanup, stated honestly**: this mutated real seeded dev data — the
+    seeded campaign moved from `draft` to `scheduled`, which breaks
+    `seed_dev_data`'s documented invariant ("never auto-sent"). Confirmed
+    no Celery worker had consumed the queued task yet (still `scheduled`,
+    zero `CampaignRecipient` rows), then reset it back to `draft` directly
+    via the ORM to restore the documented seed state. Worth remembering:
+    unlike the knowledge-base multipart verification (a throwaway document,
+    cleanly deleted), this test ran directly against a real named seed
+    fixture because campaign send needs an existing draft campaign with a
+    real segment/template already attached — creating a disposable one
+    for this check would have been more code for less realism. If a
+    Celery worker happens to be running during a similar future check,
+    the send will actually complete (and likely fail structurally, no
+    real WhatsApp account/valid token) rather than sit resettable in
+    `scheduled` — worth checking recipient rows first, as done here,
+    before assuming a reset is safe.
+  - `npx tsc --noEmit`, `npm run lint`, `npm run build` all clean.
+- **Known limitation, stated honestly** (same as every frontend session so
+  far): no browser-automation tool available, so the three-section layout,
+  status badges, and inline expand/edit rows weren't clicked through by
+  me visually.
+
+Still deferred: billing frontend and the WhatsApp-account-connection
+settings page.
+
+## Done (this session — "Frontend: Billing + WhatsApp account connection")
+
+User said "PROCEED" then "KEEP GOING, finalize the whole frontend, then
+before UI/UX we do testing" — built the last two deferred modules in one
+pass, which closes out every backend-complete/frontend-missing module
+tracked in this file since the first frontend session.
+
+- `types/index.ts`: `UsageLimitName`, `UsageLimit`, `UsageSummary`,
+  `InvoiceStatus`, `Invoice`, `GenerateInvoicePayload`,
+  `WhatsAppAccountStatus`, `WhatsAppAccount` (deliberately has no
+  `access_token` field — the API never returns it, so the read type
+  doesn't pretend it exists), `CreateWhatsAppAccountPayload`.
+- `lib/api.ts`: `getUsageSummary`, `listInvoices`, `generateInvoice`
+  (super admin), `listWhatsAppAccounts`, `createWhatsAppAccount`,
+  `updateWhatsAppAccount` (also how reconnecting with a fresh token works
+  — same endpoint, `access_token` is just one more writable field).
+- New `components/Meter.tsx`: a used-vs-capacity track, deliberately
+  separate from `BarList` — a Plan limit is one quantity against its own
+  ceiling (color = proximity to the limit: emerald/amber/red), not a
+  categorical comparison, so it earns its own small component rather than
+  overloading `BarList` with a mode flag.
+- New page `app/dashboard/billing/page.tsx`: Plan Usage (staff+, a `Meter`
+  per limit — team members, WhatsApp accounts, customers, AI messages/mo,
+  campaign sends/mo) and Invoices (manager+, matches the backend's own
+  per-view permission split). States "no payment gateway is connected"
+  plainly rather than implying invoices are ever auto-charged.
+- New page `app/dashboard/whatsapp/page.tsx` (manager+ only, staff see a
+  notice — matches `IsManagerOrAbove` on both endpoints): connected-number
+  cards with a status badge and last-error surfaced, a connect form, and
+  a per-account "Reconnect" flow (submits a fresh `access_token` via the
+  same `PATCH` the create path uses). Explicitly tells the user the token
+  is never shown again after saving, matching the backend's actual
+  contract (write-only, never serialized back, per `docs/security.md`).
+- `app/admin/page.tsx`: added a "Generate Invoice" action per tenant row
+  next to the existing Suspend/Activate button (super admin only,
+  idempotent per calendar month on the backend, so a double-click is
+  harmless) — disabled with an explanatory title when a tenant has no
+  plan assigned, since the backend rejects that with a clean 400.
+- "WhatsApp" and "Billing" added to the shared nav array on all nine
+  dashboard pages now (the full set: Overview, Products & Orders, Inbox,
+  AI Assistant, Knowledge Base, Campaigns, WhatsApp, Billing, Analytics).
+- **Verified live against the real running dev server and real seeded
+  data**, including both real write paths:
+  - All four new endpoints confirmed live-routed and `401`
+    unauthenticated.
+  - Directly computed `usage_summary()` and serialized a real seeded
+    `Invoice` and `WhatsAppAccount` — every field matches the new
+    TypeScript types exactly, and confirmed `access_token` is genuinely
+    absent from the real serialized output (not just documented as such).
+  - **The WhatsApp connect path**: used DRF's `APIClient` with
+    `force_authenticate` as the real seeded Mambo Fashion owner (chosen
+    specifically because it had zero existing accounts, so the real
+    `max_whatsapp_accounts=1` Plan limit wasn't tripped) and posted the
+    exact field set `createWhatsAppAccount()` sends. Got a real `201`
+    with `status: "connected"` (the model's real optimistic-connect
+    behavior — no live Meta handshake happens) and confirmed
+    `access_token` was absent from the response body itself, not just
+    from a hand-read of the serializer source. Test account deleted
+    immediately after.
+- **Known limitation, stated honestly** (same as every frontend session so
+  far): no browser-automation tool available, so the Meter's color
+  thresholds, the account cards, and the reconnect flow weren't clicked
+  through by me visually.
+
+**This closes out the frontend module list.** Every backend phase this
+project has built (Phases 1–15 + the security hardening pass) now has a
+working frontend surface. Remaining `docs/ROADMAP.md` gaps are backend-only
+work (business settings UI polish, Docker/deployment) or things flagged as
+deliberately out of scope (see "Known gaps flagged honestly" below) — not
+missing frontend modules.
+
+## Done (this session — "Frontend testing: Vitest + Playwright")
+
+User asked to finalize the frontend (see above) then, explicitly, "before
+jumping to design the UI/UX we do the testing" — this closes the gap every
+frontend session in this file has flagged: no browser-automation tool was
+ever available to actually click through a page. Full detail in the new
+`docs/testing.md`; this is the roadmap-level summary.
+
+- **Vitest + React Testing Library** (`npm run test`, `vitest.config.ts`):
+  component/unit tests, no server needed. 24 tests across `BarList`,
+  `Meter` (new — see below), `StatTile`, `Alert`, `Field`, `Sparkline`,
+  and one page-level test (`app/dashboard/ai`) proving the manager+ role
+  gate actually renders different content per role with a mocked API.
+  **Two real bugs found and fixed while writing these, before Playwright
+  even ran**: (1) `components/Field.tsx` — reused by nearly every form in
+  this app — never associated its `<label>` with its `<input>` (no
+  `htmlFor`/`id`, just adjacent siblings); fixed with `useId()`, a real
+  accessibility fix, not just a test-friendliness one. (2)
+  `Sparkline.tsx`'s `aria-label` hardcoded "tenants" (always plural) while
+  its visible caption correctly singularized — the accessible name and
+  the visible text disagreed; fixed to share the same logic.
+- **Playwright** (`npm run test:e2e`, `playwright.config.ts`): a real
+  Chromium browser against the real running frontend **and** real running
+  backend. Two projects: `unauthenticated` (login form, wrong-credentials
+  error, route-guard redirects off `/dashboard` and `/admin`) and
+  `authenticated` (one smoke test per dashboard page — all nine plus
+  Sessions plus logout — reusing a saved session instead of logging in
+  per spec).
+- **New backend management command** `provision_e2e_user` — creates (or
+  idempotently resets) one fixed, dedicated-tenant Business Owner account
+  with MFA **already enrolled against a known TOTP secret**, since this
+  platform's mandatory MFA (`docs/mfa.md`) means there's no way to test
+  the real login flow without a real, already-enrolled account. The
+  email/password/secret are fixed dev-only values living in exactly two
+  places that must stay in sync (`provision_e2e_user.py` and the new
+  `frontend/e2e/testUser.ts`) — same "documented dev-only credential"
+  pattern as `SUPERADMIN_EMAIL`/`PASSWORD`, not a real secret.
+  `e2e/global-setup.ts` drives the **real** `/login` → `/login/mfa-verify`
+  UI flow once per run (typing the password, computing a valid 6-digit
+  TOTP code from the known secret via the `otpauth` npm package, typing
+  that too — not a localStorage shortcut) and saves the resulting session
+  via Playwright's `storageState` for every other spec to reuse.
+- **A real bug caught on the very first real Playwright run** — not
+  contrived, this happened live while building the suite:
+  `POST /api/v1/auth/logout/` returns `205 Reset Content` with an empty
+  body; `apiFetch()` only special-cased `204` before calling `res.json()`,
+  so logout crashed on "Unexpected end of JSON input" with no `try/catch`
+  above it to swallow it — the session *was* cleared client-side (a
+  `finally` block), but `router.push("/login")` never ran, silently
+  stranding the user on `/dashboard` after clicking Log out. Every
+  `tsc`/`eslint`/`next build`/Vitest run across every prior session missed
+  this, because a mocked API response is never accidentally body-less
+  unless you think to simulate one — this is exactly the class of bug
+  real end-to-end testing exists to catch. Fixed in both `apiFetch` and
+  `pendingTokenFetch` (`lib/api.ts`) by reading the response as text first
+  and only `JSON.parse`-ing it if non-empty, rather than assuming every
+  non-204 response has a JSON body. Playwright re-run afterward: 15/15
+  passing, including the logout spec.
+- `scripts/test.ps1` now also runs `npm run test` (Vitest) — Playwright is
+  deliberately NOT wired into this script, since it needs both the
+  backend and frontend dev servers running live, unlike everything else
+  the script runs standalone; documented as a separate manual step in
+  `docs/testing.md`.
+- New `docs/testing.md` (test-layer breakdown, running instructions, the
+  E2E account, the logout bug writeup, what each layer deliberately
+  doesn't cover); README's "Running tests" section and documentation
+  index both updated.
+- Final state: 24/24 Vitest tests passing, 15/15 Playwright tests passing
+  (4 unauthenticated + 11 authenticated), `npx tsc --noEmit`/
+  `npm run lint`/`npm run build` all clean.
+
+## Done (this session — "Public marketing/landing page")
+
+User asked for "the best UI/UX ... something which can convince
+customers." The app previously had no public marketing page at all — `/`
+was a bare client-side redirect straight to `/login` or the dashboard, so
+a prospective customer had nothing to see before signing in.
+
+- **New backend endpoint**: `GET /api/v1/tenants/plans/public/`
+  (`PublicPlanListView`, `AllowAny`, no auth) — a slim `PublicPlanSerializer`
+  (name/description/price/currency/limits, deliberately excluding
+  `is_active`/`is_default`/`max_storage_mb` — the last one isn't actually
+  enforced anywhere yet, see `docs/billing.md`, so advertising it publicly
+  would overpromise). Exists so the pricing section reads real, live Plan
+  data instead of numbers hardcoded in the frontend that could silently
+  drift from what's actually configured. Added to `audit_permissions`'s
+  `KNOWN_PLATFORM_WIDE_VIEWS` allowlist (same reasoning as the existing
+  `PlanListCreateView` entry — `Plan` isn't tenant data). Verified live:
+  real seeded `Starter`/`Growth` plans returned correctly; `manage.py
+  audit_permissions` and the full 246-test `pytest` suite both still clean.
+- **New marketing page** at `/` (`components/marketing/*`: `MarketingNav`
+  with a working mobile menu, `Hero` with a hand-built illustrative chat
+  mockup — not a real customer's conversation — demonstrating the actual
+  AI-then-handoff behavior this platform runs, `FeatureGrid` (8 cards, one
+  per real shipped module), `HowItWorks`, `SecuritySection`, `Pricing`
+  (fetches the new public endpoint live), `FinalCTA`, `MarketingFooter`).
+  `app/page.tsx` now renders this for anyone without a session and
+  redirects only an already-logged-in visitor to their dashboard — the
+  reverse of before.
+- **Deliberately honest about what this platform actually is**: no
+  self-serve signup exists (onboarding is super-admin-driven via
+  `/admin` — see the README) — so every CTA says "Get in touch" /
+  "Talk to us" and opens a `mailto:` link, never a fake signup form that
+  would pretend to create an account on submit. No fabricated customer
+  testimonials, logos, or user counts — the trust/security section states
+  only controls that are actually built and tested (MFA, encryption,
+  audited tenant isolation, audit logging, rate limiting), each
+  cross-checked against `docs/security.md`/`docs/mfa.md` while writing it.
+- **Visually verified with real screenshots**, not just build/typecheck —
+  the first real payoff of having Playwright installed: full-page
+  Chromium screenshots at desktop (1440px) and mobile (390px), both light
+  and dark. Caught and fixed a real gap this way: the nav's link row was
+  `hidden md:flex` with **no mobile fallback at all** — a mobile visitor
+  had no way to reach `#features`/`#pricing`/etc. except scrolling. Added
+  a proper hamburger menu with a slide-down panel; re-screenshotted to
+  confirm.
+- **New Playwright specs** (`e2e/login.unauth.spec.ts`, unauthenticated
+  project): the marketing page renders instead of redirecting for an
+  anonymous visitor (the mirror image of the existing
+  redirect-off-`/dashboard` tests), the pricing section actually round-trips
+  real data from the new public endpoint (`Growth` / `USD 49`, not just
+  that a loading state renders), and the mobile menu opens and its Login
+  link navigates correctly.
+- Final state: 18/18 Playwright, 24/24 Vitest, 246/246 backend pytest,
+  clean `tsc`/`eslint`/`next build`/`audit_permissions`.
+
+## Done (this session — "App shell redesign + CI fix")
+
+User flagged two things: the dashboard app itself "looks very local" (plain
+top nav, no footer) even after the marketing page got real design
+attention, and a real GitHub Actions failure pasted directly from CI.
+
+- **CI fix (real, reproduced locally before fixing)**: `Cannot find name
+  'LayoutProps'`. `app/layout.tsx` uses Next.js 16's generated
+  `LayoutProps<"/">` ambient type, written to `.next/types/` — which only
+  exists after `next dev`/`next build` has run once. The workflow ran
+  `npx tsc --noEmit` *before* `npm run build`, so a fresh checkout has no
+  `.next/types/` yet and typecheck fails — passed locally every time this
+  session only because `.next` already existed from repeated manual
+  builds. Reproduced by deleting `.next` and re-running `tsc --noEmit`
+  locally (confirmed the exact CI error), fixed by adding a `next typegen`
+  step (generates just the types, no full build) before Typecheck, and
+  verified the corrected order end-to-end locally. Also bumped
+  `setup-node` from Node 20 (deprecated on GitHub-hosted runners, and
+  already inconsistent with the README's documented "Node 22+"
+  requirement) to 22, and added the Vitest suite as its own CI step —
+  it existed but was never wired into CI until now.
+- **`DashboardShell` rebuilt as a sidebar layout** — the actual reason the
+  top nav looked cramped: it had grown to 9 items (Overview through
+  Analytics) squeezed into one horizontal row with no overflow handling.
+  Now: a persistent left sidebar (desktop) with icons per section (a new
+  shared `components/Icons.tsx` — promoted from `components/marketing/`
+  since both the app and the marketing site now draw from the same icon
+  set), active-route highlighting, a user card with initials avatar and a
+  one-click logout icon button, and a slide-out drawer with backdrop on
+  mobile (same interaction pattern as the marketing nav's mobile menu).
+  Every existing page's `{label, href}[]` nav prop works unchanged — icons
+  are looked up by href, falling back to a generic icon for anything not
+  in the map, so no page needed editing for this.
+- **New app footer** on every dashboard page (in `DashboardShell`, not
+  per-page) — copyright line + a link back to the new marketing homepage.
+- **A real, live-verified bug fix along the way**: while screenshotting
+  the new sidebar on mobile, tables (Team roster, Products, Orders,
+  Campaigns, Invoices, Sessions, tenants list — 8 pages, 11 tables) were
+  clipped instead of scrollable — their wrapper used `overflow-hidden`
+  (for rounded corners) with no horizontal-scroll fallback, so the
+  rightmost column (often "Actions") was simply unreachable on a narrow
+  screen. Switched those wrappers to `overflow-x-auto`; verified via
+  Playwright's `page.evaluate()` that the container is actually
+  scrollable (`scrollWidth > clientWidth`, `overflowX: "auto"`) and that
+  scrolling it reveals the previously-unreachable column — not just that
+  it "looks fine" in a static screenshot, which alone can't show
+  scrollability.
+- **Visually verified with real screenshots** (light/dark, desktop/mobile,
+  drawer open) before calling this done, same discipline as the marketing
+  page — this is what caught the table-overflow issue above; it wasn't
+  visible in the first round of desktop-only screenshots.
+- Final state: 18/18 Playwright, 24/24 Vitest, 246/246 backend pytest,
+  clean `tsc`/`eslint`/`next build`, and the exact CI failure the user
+  pasted reproduced and fixed locally, not just guessed at.
+
 ## Not built yet — placeholder app directories only
 
 `backend/apps/{notifications,audit}/` exist as empty Python packages

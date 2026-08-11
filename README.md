@@ -156,8 +156,12 @@ rationale if you hit the same thing.
 .\scripts\test.ps1
 ```
 
-Runs backend `pytest` (23 tests, including the tenant-isolation suite),
-`manage.py check`, frontend `tsc --noEmit`, and `next build`.
+Runs backend `pytest`, `manage.py check`, frontend `tsc --noEmit`,
+frontend component/unit tests (Vitest), and `next build`.
+
+For end-to-end tests (a real browser against the real running app +
+backend) and the full breakdown of what each test layer covers, see
+[`docs/testing.md`](docs/testing.md).
 
 ## Creating a business (as super admin)
 
@@ -201,6 +205,7 @@ these values in a deployed environment.
 - [`docs/security.md`](docs/security.md)
 - [`docs/api.md`](docs/api.md)
 - [`docs/development.md`](docs/development.md)
+- [`docs/testing.md`](docs/testing.md) — test layers, running Vitest/Playwright, the E2E test account
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — what's built, what's next
 
 ## License

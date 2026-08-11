@@ -209,6 +209,12 @@ export default function InboxPage() {
         { label: "Overview", href: "/dashboard" },
         { label: "Products & Orders", href: "/dashboard/products" },
         { label: "Inbox", href: "/dashboard/inbox" },
+        { label: "AI Assistant", href: "/dashboard/ai" },
+        { label: "Knowledge Base", href: "/dashboard/knowledge" },
+        { label: "Campaigns", href: "/dashboard/campaigns" },
+        { label: "WhatsApp", href: "/dashboard/whatsapp" },
+        { label: "Billing", href: "/dashboard/billing" },
+        { label: "Analytics", href: "/dashboard/analytics" },
       ]}
     >
       <div className="space-y-4">

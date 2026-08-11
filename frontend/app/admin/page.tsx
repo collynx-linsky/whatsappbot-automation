@@ -3,11 +3,36 @@
 import { useEffect, useState } from "react";
 
 import { Alert } from "@/components/Alert";
+import { BarList, type BarListItem } from "@/components/BarList";
 import { DashboardShell } from "@/components/DashboardShell";
 import { Field } from "@/components/Field";
-import { ApiError, activateTenant, listTenants, onboardBusiness, suspendTenant } from "@/lib/api";
+import { Sparkline } from "@/components/Sparkline";
+import { StatTile } from "@/components/StatTile";
+import {
+  ApiError,
+  activateTenant,
+  generateInvoice,
+  getPlatformAnalytics,
+  listTenants,
+  onboardBusiness,
+  suspendTenant,
+} from "@/lib/api";
 import { useRequireAuth } from "@/lib/useAuth";
-import type { Tenant } from "@/types";
+import type { PlatformDashboard, Tenant } from "@/types";
+
+const TENANT_STATUS_LABEL: Record<string, string> = {
+  trial: "Trial",
+  active: "Active",
+  suspended: "Suspended",
+  cancelled: "Cancelled",
+};
+
+const USER_ROLE_LABEL: Record<string, string> = {
+  super_admin: "Super Admin",
+  business_owner: "Business Owner",
+  manager: "Manager",
+  staff: "Staff",
+};
 
 const emptyForm = {
   tenant_name: "",
@@ -20,15 +45,18 @@ const emptyForm = {
 export default function AdminPage() {
   const { user, ready } = useRequireAuth({ requireRole: "super_admin" });
   const [tenants, setTenants] = useState<Tenant[] | null>(null);
+  const [platform, setPlatform] = useState<PlatformDashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [submitting, setSubmitting] = useState(false);
+  const [generatingId, setGeneratingId] = useState<string | null>(null);
 
   async function refresh() {
     try {
-      const res = await listTenants();
-      setTenants(res.results);
+      const [tenantsRes, platformRes] = await Promise.all([listTenants(), getPlatformAnalytics()]);
+      setTenants(tenantsRes.results);
+      setPlatform(platformRes);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Failed to load tenants.");
     }
@@ -76,6 +104,23 @@ export default function AdminPage() {
     }
   }
 
+  // No payment gateway exists to trigger this automatically — a manual
+  // per-tenant action, idempotent per (tenant, current calendar month) on
+  // the backend, so clicking it twice in the same month is harmless.
+  async function handleGenerateInvoice(tenant: Tenant) {
+    setError(null);
+    setSuccess(null);
+    setGeneratingId(tenant.id);
+    try {
+      const invoice = await generateInvoice({ tenant: tenant.id });
+      setSuccess(`Generated ${invoice.invoice_number} (${invoice.currency} ${invoice.amount}).`);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Failed to generate invoice.");
+    } finally {
+      setGeneratingId(null);
+    }
+  }
+
   if (!ready || !user) {
     return <div className="flex flex-1 items-center justify-center text-zinc-500">Loading…</div>;
   }
@@ -88,9 +133,81 @@ export default function AdminPage() {
 
         <section>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+            Platform Analytics
+          </h2>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <StatTile label="Tenants" value={platform ? String(platform.tenants.total) : "—"} />
+            <StatTile label="Businesses" value={platform ? String(platform.businesses.total) : "—"} />
+            <StatTile label="Conversations" value={platform ? String(platform.conversations.total) : "—"} />
+            <StatTile label="Messages" value={platform ? String(platform.messages.total) : "—"} />
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-3">
+            <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Tenants by Status
+              </h3>
+              <BarList
+                items={
+                  platform
+                    ? (["trial", "active", "suspended", "cancelled"] as const).map((key) => ({
+                        key,
+                        label: TENANT_STATUS_LABEL[key],
+                        value: platform.tenants[key],
+                      }))
+                    : []
+                }
+              />
+            </div>
+
+            <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Users by Role
+              </h3>
+              <BarList
+                items={
+                  platform
+                    ? (["super_admin", "business_owner", "manager", "staff"] as const).map(
+                        (key): BarListItem => ({
+                          key,
+                          label: USER_ROLE_LABEL[key],
+                          value: platform.users[key],
+                        }),
+                      )
+                    : []
+                }
+              />
+            </div>
+
+            <div className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                New Tenants (30 days)
+              </h3>
+              {platform ? <Sparkline data={platform.signup_trend} /> : <p className="text-sm text-zinc-500">—</p>}
+              {platform && Object.keys(platform.orders.revenue_by_currency).length > 0 && (
+                <div className="mt-4 border-t border-zinc-100 pt-3 dark:border-zinc-800">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                    Platform Revenue
+                  </p>
+                  <dl className="space-y-1 text-sm">
+                    {Object.entries(platform.orders.revenue_by_currency).map(([currency, amount]) => (
+                      <div key={currency} className="flex justify-between">
+                        <dt className="text-zinc-500 dark:text-zinc-400">{currency}</dt>
+                        <dd className="tabular-nums text-zinc-900 dark:text-zinc-100">{amount}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
             Businesses on the Platform
           </h2>
-          <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-zinc-200 bg-zinc-50 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60 dark:text-zinc-400">
                 <tr>
@@ -119,12 +236,22 @@ export default function AdminPage() {
                       </span>
                     </td>
                     <td className="px-4 py-2">
-                      <button
-                        onClick={() => handleToggle(t)}
-                        className="text-sm font-medium text-emerald-600 hover:underline dark:text-emerald-400"
-                      >
-                        {t.status === "suspended" ? "Activate" : "Suspend"}
-                      </button>
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => handleToggle(t)}
+                          className="text-sm font-medium text-emerald-600 hover:underline dark:text-emerald-400"
+                        >
+                          {t.status === "suspended" ? "Activate" : "Suspend"}
+                        </button>
+                        <button
+                          onClick={() => handleGenerateInvoice(t)}
+                          disabled={generatingId === t.id || !t.plan}
+                          title={!t.plan ? "No plan assigned — cannot generate an invoice." : undefined}
+                          className="text-sm font-medium text-zinc-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50 dark:text-zinc-400"
+                        >
+                          {generatingId === t.id ? "Generating…" : "Generate Invoice"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
