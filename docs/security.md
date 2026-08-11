@@ -75,7 +75,26 @@
   is hardcoded `False`.
 - `CSRF_TRUSTED_ORIGINS` likewise explicit.
 - `django.middleware.security.SecurityMiddleware` on; `production.py` adds
-  HSTS, `SECURE_SSL_REDIRECT`, secure cookies, `X_FRAME_OPTIONS = "DENY"`.
+  HSTS, `SECURE_SSL_REDIRECT`, secure cookies, `X_FRAME_OPTIONS = "DENY"`,
+  and explicit `SECURE_REFERRER_POLICY`/`SECURE_CROSS_ORIGIN_OPENER_POLICY`
+  (both `"same-origin"` — already Django 5.2's own global defaults, made
+  explicit here so a future Django upgrade changing its defaults can't
+  silently change this app's behavior without showing up as a diff).
+- **Content-Security-Policy and Permissions-Policy** (Priority 8) —
+  `core.middleware.SecurityHeadersMiddleware`, new this phase. Django has
+  no built-in setting for either header, unlike HSTS/nosniff/referrer-
+  policy/frame-options above. This is a JSON API first (`DEFAULT_RENDERER
+  _CLASSES` is `JSONRenderer` only — the DRF browsable API is never
+  served), so CSP mostly matters for the two real HTML surfaces this
+  backend does serve: the Django admin and drf-spectacular's Swagger/
+  Redoc docs pages, which load their UI assets from `cdn.jsdelivr.net` by
+  default — explicitly allowlisted in the policy rather than adding a new
+  dependency (`drf-spectacular-sidecar`) to serve them locally. Live-
+  verified: both headers present on a real response, and `/api/docs/`/
+  `/api/redoc/` both still return `200` under the new policy.
+  `Permissions-Policy` explicitly disables `geolocation`/`microphone`/
+  `camera`/`payment` — none of which this backend has any legitimate use
+  for, so there's no reason a browser should ever grant them.
 - Structured error envelope (`core.exceptions.custom_exception_handler`)
   never leaks a stack trace, DB error text, or internal exception message
   to the client — unhandled exceptions are logged server-side and returned
@@ -84,6 +103,48 @@
   `JWT_SIGNING_KEY`, and all credentials come from `.env` only — nothing is
   hardcoded in source, and `.env` is gitignored. `.env.example` documents
   every key with placeholder values.
+
+## Database security (Priority 7)
+
+- **Connections**: `POSTGRES_SSLMODE` (new this phase) — `"prefer"` in
+  dev (this project's native Windows Postgres install has no SSL cert
+  configured; `"require"` would simply refuse to connect at all locally),
+  tightened to `"require"` by default in `production.py` — refuses to
+  connect over a plaintext channel at all. Upgrade to `"verify-full"` once
+  a real production Postgres host's CA cert is available. Redis/Celery
+  connection strings are already fully `.env`-driven
+  (`REDIS_URL`/`CELERY_BROKER_URL`/`CELERY_RESULT_BACKEND`) — switching to
+  `rediss://` (TLS) in production needs no code change, just the URL
+  scheme.
+- **Encryption at rest**: `core.crypto` (Fernet/AES,
+  `FIELD_ENCRYPTION_KEY`) covers WhatsApp access tokens and MFA TOTP
+  secrets — the two genuinely secret-and-recoverable values this schema
+  stores (see `docs/mfa.md`'s note on why encryption, not hashing, is
+  correct for these but not for passwords/backup codes). Deliberately
+  **not** applied to customer PII like phone numbers/emails — those need
+  to stay queryable (exact-match lookups, search) as plain indexed
+  columns; field-level encryption would break that without a much bigger
+  architectural change (e.g. a separate searchable-hash column), which
+  isn't warranted at this project's current threat model.
+- **Least privilege**: the native Postgres role this project's own dev
+  setup created (`waba_user`) is confirmed **not** a superuser and cannot
+  create other roles — verified live via `pg_roles`
+  (`rolsuper=false, rolcreaterole=false`). It can create databases
+  (`rolcreatedb=true`), which Django's test runner needs to create/destroy
+  the test database — fine for a dev/CI role. **Recommended further
+  hardening for a real production deployment** (not implemented here —
+  this is infrastructure/ops guidance, not application code): a separate
+  migration-only role with `CREATEDB`/`CREATEROLE`/schema-DDL privileges,
+  distinct from the day-to-day app-runtime role restricted to
+  `SELECT`/`INSERT`/`UPDATE`/`DELETE` on application tables only — the
+  gold-standard pattern for limiting blast radius if the app's own
+  credentials are ever compromised.
+- **SQL injection**: verified, not just assumed — `grep`'d the entire
+  application codebase (every app, `core/`, `config/`) for `.raw(`,
+  `cursor.execute`, `.extra(`, and `RawSQL`. Zero matches outside Django's
+  own auto-generated migrations. Every query in this codebase goes
+  through the Django ORM's parameterized query building — there is no
+  hand-written SQL anywhere for user input to reach.
 
 ## WhatsApp webhook security
 

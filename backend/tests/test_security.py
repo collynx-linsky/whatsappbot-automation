@@ -253,3 +253,43 @@ class TestAuditLoggingCoverage:
 
         assert resp.status_code == 200, resp.data
         assert AuditLog.objects.filter(action="CAMPAIGN_SENT").exists()
+
+
+class TestSecurityHeaders:
+    """
+    Priority 8. Also the regression coverage for a real bug this exact
+    phase introduced and caught before commit: core.middleware
+    .TenantMiddleware was switched to core.authentication
+    .FullAccessJWTAuthentication (so a purpose-tagged MFA token never
+    even transiently resolves request.tenant), but that authentication
+    class raises rest_framework.exceptions.AuthenticationFailed for such
+    a token — an exception the middleware's original except clause
+    (InvalidToken, TokenError only) didn't catch, crashing every request
+    carrying an MFA setup/challenge token with a 500 instead of letting
+    DRF's own view-level authentication turn it into a clean 401. Any
+    test exercising `auth_client()` against a not-yet-enrolled user (i.e.
+    almost the entire suite) would have caught this immediately, and did.
+    """
+
+    def test_content_security_policy_present(self, api_client):
+        resp = api_client.get("/")
+        assert "Content-Security-Policy" in resp
+        assert "default-src 'self'" in resp["Content-Security-Policy"]
+
+    def test_permissions_policy_present(self, api_client):
+        resp = api_client.get("/")
+        assert resp["Permissions-Policy"] == "geolocation=(), microphone=(), camera=(), payment=()"
+
+    def test_mfa_setup_does_not_crash_the_tenant_middleware(self, api_client, tenant_a):
+        """The actual regression: a setup_token must reach the MFA endpoint cleanly, not 500."""
+        _, _, owner_a = tenant_a
+        login = api_client.post(
+            "/api/v1/auth/login/",
+            {"email": owner_a.email, "password": "OwnerSecret1!"},
+            format="json",
+        )
+        api_client.credentials(HTTP_AUTHORIZATION=f"Bearer {login.data['setup_token']}")
+
+        resp = api_client.post("/api/v1/auth/mfa/setup/")
+
+        assert resp.status_code == 200, resp.data

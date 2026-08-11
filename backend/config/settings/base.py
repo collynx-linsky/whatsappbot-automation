@@ -76,6 +76,7 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    "core.middleware.SecurityHeadersMiddleware",
     "core.middleware.TenantMiddleware",
     "core.middleware.RequestLoggingMiddleware",
 ]
@@ -111,7 +112,16 @@ DATABASES = {
         "HOST": env("POSTGRES_HOST", default="localhost"),
         "PORT": env("POSTGRES_PORT", default="5432"),
         "CONN_MAX_AGE": 60,
-        "OPTIONS": {"connect_timeout": 10},
+        "OPTIONS": {
+            "connect_timeout": 10,
+            # "prefer" here (not "require") — this project's native Windows
+            # Postgres dev instance has no SSL certs configured, and
+            # "require" would simply refuse to connect at all in dev.
+            # production.py tightens this to "require"; a managed Postgres
+            # provider (RDS, Cloud SQL, etc.) has real SSL support out of
+            # the box, unlike a bare local install.
+            "sslmode": env("POSTGRES_SSLMODE", default="prefer"),
+        },
     }
 }
 

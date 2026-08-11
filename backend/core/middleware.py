@@ -3,6 +3,8 @@ WhatsAppBusinessAI — Core Middleware
 
 - TenantMiddleware: resolves `request.tenant`.
 - RequestLoggingMiddleware: structured request logging.
+- SecurityHeadersMiddleware: CSP + Permissions-Policy (headers Django has
+  no built-in setting for — see docs/security.md).
 """
 
 import logging
@@ -58,12 +60,29 @@ class TenantMiddleware(MiddlewareMixin):
 
     @staticmethod
     def _authenticate(request):
-        from rest_framework_simplejwt.authentication import JWTAuthentication
+        # FullAccessJWTAuthentication, not plain JWTAuthentication — a
+        # token minted for the MFA setup/challenge flow (apps.accounts.mfa)
+        # must never resolve request.tenant either, even though DRF's own
+        # authentication layer (which runs later, at view dispatch) would
+        # independently reject such a token before any view logic ran.
+        # Belt-and-suspenders: this middleware should never even
+        # transiently treat a not-yet-fully-authenticated request as
+        # "this is tenant X."
+        from rest_framework.exceptions import AuthenticationFailed
         from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 
+        from core.authentication import FullAccessJWTAuthentication
+
         try:
-            result = JWTAuthentication().authenticate(request)
-        except (InvalidToken, TokenError):
+            result = FullAccessJWTAuthentication().authenticate(request)
+        except (InvalidToken, TokenError, AuthenticationFailed):
+            # AuthenticationFailed specifically covers a purpose-tagged
+            # MFA token here — FullAccessJWTAuthentication.get_user()
+            # raises it deliberately (see core/authentication.py), and
+            # this middleware treats that exactly like "no authenticated
+            # user," not a request-ending error — DRF's own view-level
+            # authentication is what actually turns it into a real 401
+            # response for the caller.
             return None
         if result is None:
             return None
@@ -116,3 +135,43 @@ class RequestLoggingMiddleware(MiddlewareMixin):
         if x_forwarded_for:
             return x_forwarded_for.split(",")[0].strip()
         return request.META.get("REMOTE_ADDR", "")
+
+
+class SecurityHeadersMiddleware(MiddlewareMixin):
+    """
+    Adds Content-Security-Policy and Permissions-Policy — the two
+    meaningful security headers Django's own `SecurityMiddleware` has no
+    setting for (HSTS/nosniff/referrer-policy/frame-options are all
+    already covered by Django settings — see config/settings/production.py).
+
+    This is a JSON API first (DEFAULT_RENDERER_CLASSES is JSONRenderer
+    only — the browsable API is never served), so CSP mostly matters for
+    the two real HTML surfaces this backend does serve: the Django admin
+    and drf-spectacular's Swagger/Redoc docs pages
+    (`/api/docs/`, `/api/redoc/`), which load their UI assets from
+    `cdn.jsdelivr.net` by default (drf-spectacular's own
+    `SWAGGER_UI_DIST`/`REDOC_DIST` settings) — explicitly allowlisted
+    below rather than switching to `drf-spectacular-sidecar` (a new
+    dependency) to serve those assets locally instead.
+    """
+
+    CSP = (
+        "default-src 'self'; "
+        "script-src 'self' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "img-src 'self' data: https://cdn.jsdelivr.net; "
+        "font-src 'self' data:; "
+        "connect-src 'self'; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    )
+    PERMISSIONS_POLICY = "geolocation=(), microphone=(), camera=(), payment=()"
+
+    def process_response(self, request, response):
+        # DEBUG-only relaxation isn't needed — the CSP above already
+        # allows everything this app's own dev tooling (Django admin,
+        # drf-spectacular docs) needs, in every environment.
+        response.setdefault("Content-Security-Policy", self.CSP)
+        response.setdefault("Permissions-Policy", self.PERMISSIONS_POLICY)
+        return response
