@@ -97,3 +97,24 @@ tenant-scoped model has an explicit `validate_<field>` check
 
 Every domain model added in later phases (products, orders, ...) inherits
 `core.models.BaseModel` and is tenant-scoped by construction.
+
+## Whole-codebase audit (Priority 1 of the security-hardening pass)
+
+By the time MFA/rate-limiting/billing/campaigns/etc. all landed, this
+codebase had grown to 62 view classes across 15 apps — too many to
+re-verify by re-reading them all every time a security question comes
+up. `python manage.py audit_permissions` (new — see `docs/security.md`)
+walks every registered URL and checks that every view with a `queryset`/
+`get_queryset` either uses `TenantScopedQuerysetMixin`, is a genuinely
+platform-wide resource (`Tenant`/`Plan` — see the table above), or is on
+a reviewed allowlist of hand-rolled `get_queryset()` implementations that
+have been manually confirmed to filter by tenant (`StaffListCreateView`/
+`StaffDetailView`, `ConversationAssignmentHistoryView`,
+`KnowledgeDocumentChunksView`, `CampaignRecipientsView` — each filters by
+`user.tenant_id` with a correct `is_superuser` bypass, same shape as the
+mixin itself). Result as of this pass: **zero unreviewed gaps** — every
+tenant-scoped view in the entire backend is accounted for.
+`tests/test_permissions_audit.py` runs this on every test run (a real
+regression guard, not a one-off) and separately proves the check isn't a
+no-op by registering a deliberately-broken view and confirming the audit
+actually catches it.

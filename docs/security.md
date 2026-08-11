@@ -49,6 +49,24 @@
 - Super admins bypass role checks (explicit spec requirement — platform
   oversight) but never bypass tenant isolation on data they don't own
   outside that oversight capacity.
+- **Whole-codebase audit** (Priorities 1+2 of this pass): `python manage.py
+  audit_permissions` walks all 62 view classes across every app and
+  confirms two things automatically — every view has an explicit
+  permission check (nothing silently relies on the bare `IsAuthenticated`
+  default, which would let any role through), and every queryset-based
+  view is tenant-scoped (via the mixin, a reviewed manual `get_queryset()`,
+  or is a genuinely platform-wide resource). Zero gaps found; see
+  `docs/multi-tenancy.md` for the full writeup and the reviewed-views
+  list. `tests/test_permissions_audit.py` runs it on every test run and
+  proves it isn't a no-op by registering a deliberately-unguarded view
+  and confirming the audit catches it — a real regression guard against
+  a future view shipping unguarded, not just a point-in-time review.
+  This project's RBAC is deliberately the spec's 4 fixed roles, not a
+  dynamic per-tenant permission-assignment engine (see
+  `docs/ROADMAP.md`'s known gaps) — the audit confirms those 4 roles are
+  *consistently and completely* enforced, which is the actual
+  vulnerability class a permission audit needs to rule out, independent
+  of whether the role model itself is static or dynamic.
 
 ## Transport / API hardening
 
