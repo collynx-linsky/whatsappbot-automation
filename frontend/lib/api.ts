@@ -12,17 +12,21 @@ import type {
   CreateStaffResponse,
   Customer,
   LoginResponse,
+  MFASetupConfirmResponse,
+  MFASetupResponse,
+  MFAVerifyResponse,
   OnboardBusinessPayload,
   OnboardBusinessResponse,
   Order,
   OrderStatus,
   Paginated,
   Product,
+  Session,
   StaffMember,
   Tenant,
   User,
 } from "@/types";
-import { clearSession, getAccessToken, getRefreshToken, setAccessToken, setSession } from "./auth";
+import { clearSession, getAccessToken, getRefreshToken, setAccessToken } from "./auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
@@ -92,14 +96,78 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
 }
 
 // ── Auth ─────────────────────────────────────────────────────
-export async function login(email: string, password: string): Promise<LoginResponse> {
-  const data = await apiFetch<LoginResponse>("/auth/login/", {
+//
+// `login()` never yields a real session directly — MFA is mandatory for
+// every role, so the backend always returns a step-up token instead (see
+// LoginResponse in @/types). The caller (the login page) is responsible for
+// stashing that token and continuing through the MFA setup/verify flow.
+export function login(email: string, password: string): Promise<LoginResponse> {
+  return apiFetch<LoginResponse>("/auth/login/", {
     method: "POST",
     auth: false,
     body: JSON.stringify({ email, password }),
   });
-  setSession(data.access, data.refresh, data.user);
-  return data;
+}
+
+// The three MFA endpoints authenticate with a short-lived (10 min)
+// purpose-tagged token, not the normal access token — so they can't go
+// through apiFetch()'s Authorization header / silent-refresh-retry logic.
+// A 401/403 here means "the step-up token expired or is wrong-purpose,
+// start over," never "refresh and retry."
+async function pendingTokenFetch<T>(
+  path: string,
+  token: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new ApiError(res.status, data as ApiErrorEnvelope);
+  }
+  return data as T;
+}
+
+export function mfaSetup(setupToken: string): Promise<MFASetupResponse> {
+  return pendingTokenFetch<MFASetupResponse>("/auth/mfa/setup/", setupToken, {
+    method: "POST",
+  });
+}
+
+export function mfaSetupConfirm(
+  setupToken: string,
+  code: string,
+): Promise<MFASetupConfirmResponse> {
+  return pendingTokenFetch<MFASetupConfirmResponse>("/auth/mfa/setup/confirm/", setupToken, {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+export function mfaVerify(
+  challengeToken: string,
+  payload: { code?: string; backup_code?: string },
+): Promise<MFAVerifyResponse> {
+  return pendingTokenFetch<MFAVerifyResponse>("/auth/mfa/verify/", challengeToken, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function listSessions(): Promise<Session[]> {
+  return apiFetch<Session[]>("/auth/sessions/");
+}
+
+export function revokeSession(jti: string): Promise<{ detail: string }> {
+  return apiFetch<{ detail: string }>(`/auth/sessions/${jti}/revoke/`, {
+    method: "POST",
+  });
 }
 
 export async function logout(): Promise<void> {

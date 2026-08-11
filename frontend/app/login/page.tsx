@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { Alert } from "@/components/Alert";
 import { ApiError } from "@/lib/api";
-import { dashboardPathForRole } from "@/lib/auth";
+import { setPendingToken } from "@/lib/auth";
 import * as api from "@/lib/api";
 
 export default function LoginPage() {
@@ -20,8 +20,17 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      const { user } = await api.login(email, password);
-      router.push(dashboardPathForRole(user.role));
+      const data = await api.login(email, password);
+      // Login never returns a real session directly — MFA is mandatory for
+      // every role, so this is always a step-up token. Stash it and hand
+      // off to whichever MFA step this user needs.
+      if ("mfa_setup_required" in data) {
+        setPendingToken(data.setup_token);
+        router.push("/login/mfa-setup");
+      } else {
+        setPendingToken(data.challenge_token);
+        router.push("/login/mfa-verify");
+      }
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Unable to reach the server.");
     } finally {

@@ -18,7 +18,7 @@ const emptyForm = {
 };
 
 export default function AdminPage() {
-  const { user, ready } = useRequireAuth();
+  const { user, ready } = useRequireAuth({ requireRole: "super_admin" });
   const [tenants, setTenants] = useState<Tenant[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);

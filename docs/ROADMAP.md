@@ -574,6 +574,60 @@ the user. Full detail lives in `docs/security.md`, `docs/mfa.md`, and
 work), 0 bandit findings, 0 pip-audit findings, `audit_permissions`
 clean across 62 view classes / 260 URL patterns.
 
+## Done (this session — "Frontend: fix broken MFA login flow + sessions")
+
+The MFA work above changed `POST /api/v1/auth/login/`'s response shape
+(never returns real tokens directly anymore — always a purpose-tagged
+step-up token). The frontend predates that change and still assumed
+tokens came back from login directly: every real login through the UI
+was broken. Fixed, plus a session-management page, since the backend
+already supported it and nothing exposed it:
+
+- `types/index.ts`: `LoginResponse` is now a discriminated union
+  (`mfa_setup_required`/`setup_token` vs `mfa_required`/`challenge_token`);
+  added `MFASetupResponse`, `MFASetupConfirmResponse`, `MFAVerifyResponse`,
+  `Session`.
+- `lib/api.ts`: `login()` no longer assembles a session itself — it
+  returns the union and the caller decides. Added `mfaSetup`,
+  `mfaSetupConfirm`, `mfaVerify`, `listSessions`, `revokeSession`, and a
+  `pendingTokenFetch` helper (separate from `apiFetch`) for the three MFA
+  calls that authenticate with a short-lived purpose token, not a normal
+  access token — deliberately skips the silent-refresh-retry logic, since
+  a 401 there means "start over," not "refresh."
+- `lib/auth.ts`: pending step-up tokens live in `sessionStorage` (not
+  `localStorage`) — matches their 10-minute, single-tab-scoped lifetime.
+  `useRequireAuth()` gained an optional `requireRole` that redirects a
+  mismatched role to their own dashboard instead of rendering the page —
+  applied to `/admin`, which never checked `role === "super_admin"`
+  before (the backend already enforced it server-side on every real call,
+  so not a data leak, just a confusing broken-page UX for the wrong role).
+- New pages: `/login/mfa-setup` (QR code via `qrcode.react` off the
+  backend's `otpauth://` URI, manual-entry secret fallback, 6-digit
+  confirm, one-time backup-codes display with a copy button and an
+  acknowledgement checkbox before continuing), `/login/mfa-verify`
+  (6-digit code, with a "use a backup code instead" toggle), and
+  `/dashboard/sessions` (list + revoke — reachable from every role via a
+  new persistent "Sessions" link in `DashboardShell`'s header).
+- Live contract verification via `curl` against a running server:
+  drove both login branches for real (a never-enrolled throwaway user
+  hit `mfa_setup_required`; the same user after enrolling hit
+  `mfa_required` on a second login), the full setup → confirm chain, the
+  verify chain, and a real session list + revoke — confirmed every JSON
+  shape the new frontend code assumes actually comes back from the real
+  server, byte for byte. `npx tsc --noEmit`, `npm run lint`, and
+  `npm run build` all clean against the new code.
+- **Known limitation, stated honestly**: no browser-automation tool is
+  available in this environment, so an actual interactive click-through
+  (QR code rendering, layout, real button clicks) wasn't done by me —
+  only the HTTP contract and the build/typecheck/lint were verified.
+  Recommended: run `npm run dev` + `manage.py runserver` together and
+  click through login → MFA setup → dashboard once in a real browser.
+
+Explicitly out of scope this pass (deferred, backend already complete
+for all of these, zero frontend exists yet): WhatsApp inbox
+(conversations/messages), AI settings, knowledge base, campaigns,
+analytics, billing. Next frontend session picks one of these up.
+
 ## Not built yet — placeholder app directories only
 
 `backend/apps/{notifications,audit}/` exist as empty Python packages

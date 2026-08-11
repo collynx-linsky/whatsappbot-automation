@@ -64,10 +64,38 @@ export interface Paginated<T> {
   results: T[];
 }
 
-export interface LoginResponse {
+// `POST /auth/login/` never returns real tokens directly — MFA is mandatory
+// for every role (no exceptions). It returns a short-lived (10 min),
+// purpose-tagged step-up token instead: `setup_token` the first time a user
+// logs in (they haven't enrolled TOTP yet), `challenge_token` every time
+// after that. See docs/mfa.md.
+export type LoginResponse =
+  | { mfa_setup_required: true; setup_token: string }
+  | { mfa_required: true; challenge_token: string };
+
+export interface MFASetupResponse {
+  secret: string;
+  // otpauth://totp/... URI — not an image. Render it as a QR code client-side.
+  provisioning_uri: string;
+}
+
+export interface MFASetupConfirmResponse {
   access: string;
   refresh: string;
-  user: User;
+  // 10 single-use recovery codes, plaintext, shown exactly this once —
+  // only their hash is ever persisted server-side.
+  backup_codes: string[];
+}
+
+export interface MFAVerifyResponse {
+  access: string;
+  refresh: string;
+}
+
+export interface Session {
+  jti: string;
+  created_at: string;
+  expires_at: string;
 }
 
 export interface OnboardBusinessPayload {
