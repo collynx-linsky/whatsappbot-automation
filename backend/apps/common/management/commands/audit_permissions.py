@@ -40,6 +40,7 @@ KNOWN_PLATFORM_WIDE_VIEWS = {
     "TenantListView",  # Tenant IS the isolation boundary — nothing to scope it by
     "TenantDetailView",
     "PlanListCreateView",  # shared plan catalog, not tenant data
+    "PublicPlanListView",  # same shared catalog, filtered to active plans, AllowAny
 }
 
 # Views with a hand-rolled get_queryset() already manually reviewed and

@@ -30,6 +30,35 @@ class PlanSerializer(serializers.ModelSerializer):
         read_only_fields = ["id"]
 
 
+class PublicPlanSerializer(serializers.ModelSerializer):
+    """
+    The subset of Plan fields safe to show an anonymous visitor on the
+    public marketing/pricing page — no `is_active`/`is_default` (internal
+    bookkeeping, not a customer's concern) and no `max_storage_mb` (not
+    actually enforced anywhere yet — see docs/billing.md — so advertising
+    it as a real limit would overpromise what this platform currently
+    does).
+    """
+
+    class Meta:
+        model = Plan
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "description",
+            "price_monthly",
+            "currency",
+            "max_users",
+            "max_whatsapp_accounts",
+            "max_ai_messages_per_month",
+            "max_customers",
+            "max_campaigns_per_month",
+            "sort_order",
+        ]
+        read_only_fields = fields
+
+
 class TenantSerializer(serializers.ModelSerializer):
     plan_name = serializers.CharField(source="plan.name", read_only=True, default=None)
     business_count = serializers.IntegerField(source="businesses.count", read_only=True)

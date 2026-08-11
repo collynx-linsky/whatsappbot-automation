@@ -9,6 +9,8 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from rest_framework.permissions import AllowAny
+
 from apps.accounts.models import User
 from apps.accounts.serializers import UserSerializer
 from apps.businesses.models import Business
@@ -16,7 +18,12 @@ from apps.common.models import AuditLog
 from core.permissions import IsSuperAdmin
 
 from .models import Plan, Tenant
-from .serializers import OnboardBusinessSerializer, PlanSerializer, TenantSerializer
+from .serializers import (
+    OnboardBusinessSerializer,
+    PlanSerializer,
+    PublicPlanSerializer,
+    TenantSerializer,
+)
 
 
 class TenantListView(generics.ListAPIView):
@@ -152,3 +159,19 @@ class PlanListCreateView(generics.ListCreateAPIView):
         if self.request.method == "POST":
             return [IsSuperAdmin()]
         return super().get_permissions()
+
+
+class PublicPlanListView(generics.ListAPIView):
+    """
+    GET /api/v1/tenants/plans/public/ — genuinely public (AllowAny, no
+    authentication at all), unlike PlanListCreateView's GET above which
+    still requires a logged-in user. This is what the public marketing
+    site's pricing section reads, so it can show real, live plan data
+    instead of numbers hardcoded in the frontend that could silently drift
+    from what a super admin actually configured.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+    serializer_class = PublicPlanSerializer
+    queryset = Plan.objects.filter(is_active=True).order_by("sort_order", "price_monthly")
