@@ -105,7 +105,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
@@ -115,8 +115,20 @@ jobs:
       - name: eslint
         run: npm run lint
 
+      - name: Generate Next.js route/layout types
+        # `LayoutProps<...>`/`PageProps<...>` are ambient types Next.js
+        # writes to .next/types/ — they don't exist on a fresh checkout,
+        # only after `next dev`/`next build` has run once. `next typegen`
+        # generates just that, without a full build, so `tsc --noEmit`
+        # below doesn't fail with "Cannot find name 'LayoutProps'" the way
+        # it did before this step existed.
+        run: npx next typegen
+
       - name: Typecheck
         run: npx tsc --noEmit
+
+      - name: Unit/component tests
+        run: npm run test
 
       - name: Build
         run: npm run build
