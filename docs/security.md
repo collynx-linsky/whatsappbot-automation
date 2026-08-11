@@ -57,21 +57,52 @@ WhatsApp access tokens are encrypted at rest (`core.crypto`, Fernet/AES,
 key from `WHATSAPP_TOKEN_ENCRYPTION_KEY`) and never included in any API
 response, proven by testing the actual rendered response body.
 
-## Secrets not yet implemented (flagged honestly)
+## Rate limiting
 
-- Rate limiting architecture (DRF throttle classes) is not wired up yet —
-  `REST_FRAMEWORK` has no `DEFAULT_THROTTLE_CLASSES` yet. This matters most
-  for two endpoints specifically: the public, unauthenticated webhook
-  (`/api/v1/whatsapp/webhook/`, protected by signature verification, not
-  rate limiting — a flood of *correctly signed* requests or repeated
-  failed-signature probing isn't throttled) and `/api/v1/ai/test/`
-  (authenticated, but an unthrottled loop against it would burn a real
-  provider's API quota/cost once `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` is
-  set — see `docs/ai.md`). Also applies to `/api/v1/knowledge/documents/`
-  (POST) once embedding calls are live, and `/api/v1/campaigns/{id}/send/`
-  — an unthrottled loop against either burns real provider quota/cost or
-  spams real WhatsApp customers. Flagged in `docs/ROADMAP.md` as Phase 15
-  work.
+`REST_FRAMEWORK["DEFAULT_THROTTLE_CLASSES"]` (`config/settings/base.py`):
+`AnonRateThrottle` + `UserRateThrottle` as a blanket DoS backstop
+(`THROTTLE_RATE_ANON`/`THROTTLE_RATE_USER` in `.env`, defaulting to
+`100/hour`/`3000/hour`), plus `ScopedRateThrottle` — a no-op on any view
+that doesn't set `throttle_scope`, so listing it as a platform-wide
+default is safe. Four views set `throttle_scope`, each independently
+tunable via `.env` (`THROTTLE_RATE_<SCOPE>`):
+
+| Scope | View | Default rate | Why |
+|---|---|---|---|
+| `whatsapp_webhook` | `WhatsAppWebhookView` | `120/minute` | Public, unauthenticated — signature verification (below) proves authenticity, but doesn't bound *volume*; a flood of correctly-signed requests or repeated failed-signature probing needs its own cap, separate from the shared `anon` bucket every other anonymous request (e.g. login attempts) draws from. |
+| `ai_test` | `AITestView` | `20/hour` | Real provider API cost once `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` is set — see `docs/ai.md`. |
+| `knowledge_upload` | `KnowledgeDocumentListCreateView` (`POST` only — `GET` deliberately excluded via `get_throttles()`, see `apps.knowledge.views`) | `30/hour` | Real embedding-provider API cost once configured — see `docs/rag.md`. |
+| `campaign_send` | `CampaignSendView` | `10/hour` | Messages real customers — the most consequential action in this API, both in cost and impact. |
+
+**Live-verified, not just under `pytest`**: 20 real consecutive requests
+to `/api/v1/ai/test/` against a running dev server (real Redis-backed
+cache, not the in-memory test cache) all returned `200`; the 21st
+returned a real `429` with `"Request was throttled. Expected available in
+3553 seconds."`, flowing through the same error envelope as every other
+exception in this API.
+
+**Testing note for anyone extending this**: `tests/test_security.py`
+overrides rates per-test via `monkeypatch.setitem(SimpleRateThrottle
+.THROTTLE_RATES, scope, "1/min")`, **not** the `settings` fixture.
+DRF's `SimpleRateThrottle.THROTTLE_RATES` is a plain class attribute
+bound once (at Django startup, when `rest_framework.throttling` is first
+imported) to the exact dict object `settings.REST_FRAMEWORK
+["DEFAULT_THROTTLE_RATES"]` was at that moment — it is never re-read per
+request. Reassigning `settings.REST_FRAMEWORK` later (what the `settings`
+fixture naturally does) constructs a brand-new dict the already-bound
+class attribute never sees, so the override silently does nothing; a
+test written that way would still pass, but for the wrong reason (see
+`tests/test_security.py`'s module docstring for how this was actually
+caught: an early version of these tests appeared to pass while secretly
+throttling on the real `20/hour`/`30/hour`/etc. production defaults
+instead of the intended `1/min` override — verified by re-running the
+same scenario with debug output showing the dict identity mismatch).
+Also required a new `tests/conftest.py` autouse fixture
+(`_clear_throttle_cache`) clearing Django's cache before every test —
+`CACHES` uses `LocMemCache` in tests (persists for the whole `pytest`
+process), so without it, request counts would silently accumulate across
+the entire 200+-test suite and eventually trip an unrelated test.
+
 - No "test the connection" call when a WhatsApp account is connected — a
   wrong/expired access token isn't caught until the first real send fails.
 
@@ -99,16 +130,21 @@ existing transport-level `MAX_UPLOAD_SIZE_MB` bound. `MessageAttachment`
 
 ## Audit logging
 
-`apps.common.models.AuditLog` + `AuditLog.log(...)` helper. Currently wired
-to: user creation (signal), tenant onboarding, tenant suspend/activate,
-and every AI→human handoff (`apps.ai.services._hand_off`, action
-`AI_HANDOFF`, metadata records the reason — keyword match, low confidence,
-provider error, or missing API key). Every future administrative action
-(product changes, order creation, AI settings changes, staff added,
-campaign created, ...) should call
-`AuditLog.log(action=..., user=..., tenant=..., obj=...)` from its service
-layer as those apps land — this is a platform-wide requirement (spec
-section 19), not per-app optional.
+`apps.common.models.AuditLog` + `AuditLog.log(...)` helper. Wired to:
+user creation (signal), tenant onboarding, tenant suspend/activate,
+product create/update, order creation and status changes, staff added,
+every AI→human handoff (`AI_HANDOFF`, metadata records the reason —
+keyword match, low confidence, provider error, or missing API key), and
+— added this phase, closing a real gap flagged in an earlier version of
+this doc — `AI_SETTINGS_UPDATED`, `KNOWLEDGE_DOCUMENT_UPLOADED`,
+`WHATSAPP_ACCOUNT_CONNECTED`, `CAMPAIGN_SENT`, and `INVOICE_GENERATED`.
+Every future administrative action should call
+`AuditLog.log(action=..., user=..., tenant=..., obj=...)` from its
+service/view layer as new apps land — this is a platform-wide
+requirement (spec section 19), not per-app optional.
+`tests/test_security.py::TestAuditLoggingCoverage` proves each of this
+phase's five new actions actually fires an `AuditLog` row, not just that
+the underlying action succeeds.
 
 ## What was verified live this session
 
@@ -123,3 +159,7 @@ section 19), not per-app optional.
   signature processed end-to-end against the live server; wrong/missing
   signatures rejected with `403`; a duplicate delivery of the same event
   proven idempotent (no duplicate message).
+- Rate limiting: 20 real consecutive `/api/v1/ai/test/` requests against
+  a running dev server all succeeded, the 21st returned a genuine `429`
+  (see the Rate limiting section above) — against the real production
+  default rate, not a test-only override.

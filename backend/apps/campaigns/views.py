@@ -150,10 +150,16 @@ class CampaignDetailView(TenantScopedQuerysetMixin, generics.RetrieveUpdateAPIVi
 
 
 class CampaignSendView(TenantScopedQuerysetMixin, generics.GenericAPIView):
-    """POST /api/v1/campaigns/{id}/send/ — manager+, queues the actual send."""
+    """
+    POST /api/v1/campaigns/{id}/send/ — manager+, queues the actual send.
+    Scope-throttled (see docs/security.md) — this endpoint messages real
+    customers and this view is POST-only, so no per-method split is
+    needed the way apps.knowledge's upload endpoint requires.
+    """
 
     permission_classes = [IsManagerOrAbove]
     queryset = Campaign.objects.all()
+    throttle_scope = "campaign_send"
 
     def post(self, request, *args, **kwargs):
         campaign = self.get_object()
@@ -179,6 +185,17 @@ class CampaignSendView(TenantScopedQuerysetMixin, generics.GenericAPIView):
 
         send_campaign_task.delay(str(campaign.id))
         campaign.refresh_from_db()
+
+        from apps.common.models import AuditLog
+
+        AuditLog.log(
+            action="CAMPAIGN_SENT",
+            user=request.user,
+            tenant=campaign.tenant,
+            obj=campaign,
+            metadata={"name": campaign.name, "recipient_count": campaign.recipient_count},
+            ip_address=request.META.get("REMOTE_ADDR"),
+        )
         return Response(CampaignSerializer(campaign).data)
 
 

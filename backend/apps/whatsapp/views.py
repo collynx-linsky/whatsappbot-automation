@@ -7,6 +7,7 @@ from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 from rest_framework import generics
 from rest_framework.permissions import AllowAny
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from core.mixins import TenantScopedCreateMixin, TenantScopedQuerysetMixin
@@ -30,9 +31,19 @@ class WhatsAppAccountListCreateView(
 
     def perform_create(self, serializer):
         from apps.billing.services import check_limit
+        from apps.common.models import AuditLog
 
         check_limit(self.request.user.tenant, "whatsapp_accounts")
         super().perform_create(serializer)
+        account = serializer.instance
+        AuditLog.log(
+            action="WHATSAPP_ACCOUNT_CONNECTED",
+            user=self.request.user,
+            tenant=account.tenant,
+            obj=account,
+            metadata={"phone_number": account.phone_number},
+            ip_address=self.request.META.get("REMOTE_ADDR"),
+        )
 
 
 class WhatsAppAccountDetailView(TenantScopedQuerysetMixin, generics.RetrieveUpdateAPIView):
@@ -59,6 +70,13 @@ class WhatsAppWebhookView(APIView):
 
     permission_classes = [AllowAny]
     authentication_classes = []
+    # Scoped, not the blanket Anon/User throttles — a public,
+    # unauthenticated endpoint sharing the default "anon" bucket with
+    # every other anonymous request (e.g. login attempts) would be too
+    # easy to accidentally exhaust from unrelated traffic. See
+    # docs/security.md.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "whatsapp_webhook"
 
     def get(self, request):
         mode = request.GET.get("hub.mode")

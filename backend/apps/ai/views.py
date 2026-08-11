@@ -54,6 +54,17 @@ class AISettingsView(APIView):
         )
         serializer.is_valid(raise_exception=True)
         serializer.save()
+
+        from apps.common.models import AuditLog
+
+        AuditLog.log(
+            action="AI_SETTINGS_UPDATED",
+            user=request.user,
+            tenant=request.user.tenant,
+            obj=settings_,
+            metadata={"changed_fields": list(request.data.keys())},
+            ip_address=request.META.get("REMOTE_ADDR"),
+        )
         return Response(serializer.data)
 
 
@@ -62,9 +73,14 @@ class AITestView(APIView):
     POST /api/v1/ai/test/ — onboarding step 7 "test your AI": runs the same
     handoff-check + prompt-building logic as a real inbound message, but
     against ad-hoc text and without touching Conversation/Message at all.
+
+    Throttled (`throttle_scope`, see settings.REST_FRAMEWORK) on top of
+    the global per-user rate — an unthrottled loop here would burn real
+    provider API quota/cost once a key is configured. See docs/security.md.
     """
 
     permission_classes = [IsManagerOrAbove]
+    throttle_scope = "ai_test"
 
     def post(self, request):
         input_serializer = AITestSerializer(data=request.data)

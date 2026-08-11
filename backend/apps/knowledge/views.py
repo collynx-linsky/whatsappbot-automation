@@ -4,6 +4,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import generics
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 
 from core.mixins import TenantScopedQuerysetMixin
 from core.permissions import IsManagerOrAbove, IsStaffOrAbove
@@ -30,6 +31,16 @@ class KnowledgeDocumentListCreateView(TenantScopedQuerysetMixin, generics.ListCr
         if self.request.method == "POST":
             return [IsManagerOrAbove()]
         return [IsStaffOrAbove()]
+
+    def get_throttles(self):
+        # Only POST (uploading -> real embedding-provider cost once a key
+        # is configured) is scope-throttled — GET (listing/browsing the
+        # knowledge base) shouldn't share that tight budget. See
+        # docs/security.md.
+        if self.request.method == "POST":
+            self.throttle_scope = "knowledge_upload"
+            return [ScopedRateThrottle()]
+        return super().get_throttles()
 
     def get_serializer_class(self):
         if self.request.method == "POST":
@@ -59,6 +70,17 @@ class KnowledgeDocumentListCreateView(TenantScopedQuerysetMixin, generics.ListCr
         # of, so it must be refreshed before we serialize it for the
         # response, or the caller sees a stale `status=pending`.
         document.refresh_from_db()
+
+        from apps.common.models import AuditLog
+
+        AuditLog.log(
+            action="KNOWLEDGE_DOCUMENT_UPLOADED",
+            user=request.user,
+            tenant=document.tenant,
+            obj=document,
+            metadata={"title": document.title, "source_type": document.source_type},
+            ip_address=request.META.get("REMOTE_ADDR"),
+        )
 
         # Re-serialize with the read serializer so the response includes
         # status/chunk_count/etc — the create serializer's own `.data` is

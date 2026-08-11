@@ -171,6 +171,27 @@ REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "EXCEPTION_HANDLER": "core.exceptions.custom_exception_handler",
     "NON_FIELD_ERRORS_KEY": "non_field_errors",
+    # Blanket anon/user rates are a baseline DoS backstop, not a tuned
+    # per-endpoint policy — the four scoped rates below are what actually
+    # matters, applied via `throttle_scope` on the views flagged in
+    # docs/security.md as touching real external cost/impact (an
+    # unauthenticated webhook, or provider/customer-messaging calls once
+    # real credentials exist). ScopedRateThrottle is a no-op on any view
+    # that doesn't set `throttle_scope`, so listing it as a DEFAULT here
+    # is safe platform-wide.
+    "DEFAULT_THROTTLE_CLASSES": (
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": env("THROTTLE_RATE_ANON", default="100/hour"),
+        "user": env("THROTTLE_RATE_USER", default="3000/hour"),
+        "whatsapp_webhook": env("THROTTLE_RATE_WHATSAPP_WEBHOOK", default="120/minute"),
+        "ai_test": env("THROTTLE_RATE_AI_TEST", default="20/hour"),
+        "knowledge_upload": env("THROTTLE_RATE_KNOWLEDGE_UPLOAD", default="30/hour"),
+        "campaign_send": env("THROTTLE_RATE_CAMPAIGN_SEND", default="10/hour"),
+    },
 }
 
 # ── JWT ───────────────────────────────────────────────────────

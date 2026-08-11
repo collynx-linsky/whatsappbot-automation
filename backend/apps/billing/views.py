@@ -69,4 +69,15 @@ class GenerateInvoiceView(APIView):
                 {"detail": "This tenant has no plan assigned — cannot generate an invoice."},
                 status=400,
             )
+
+        from apps.common.models import AuditLog
+
+        AuditLog.log(
+            action="INVOICE_GENERATED",
+            user=request.user,
+            tenant=tenant,
+            obj=invoice,
+            metadata={"invoice_number": invoice.invoice_number, "amount": str(invoice.amount)},
+            ip_address=request.META.get("REMOTE_ADDR"),
+        )
         return Response(InvoiceSerializer(invoice).data, status=201)

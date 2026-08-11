@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 import pytest
+from django.core.cache import cache
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
@@ -8,6 +9,24 @@ from apps.businesses.models import Business
 from apps.customers.models import Customer
 from apps.products.models import Product
 from apps.tenants.models import Plan, Tenant
+
+
+@pytest.fixture(autouse=True)
+def _clear_throttle_cache():
+    """
+    DRF's throttle classes (enabled platform-wide — see
+    config/settings/base.py's REST_FRAMEWORK) store request counters in
+    Django's cache, and CACHES uses LocMemCache in tests
+    (config/settings/test.py) — which persists for the whole pytest
+    process, not per-test. Without this, request counts would accumulate
+    across the entire suite (hundreds of anonymous/authenticated requests
+    across 200+ tests) and eventually trip a real rate limit inside an
+    unrelated test. Clearing before every test keeps throttling itself
+    genuinely testable (tests/test_security.py overrides a rate to
+    something tiny and asserts a real 429) without it silently
+    contaminating everything else.
+    """
+    cache.clear()
 
 
 @pytest.fixture

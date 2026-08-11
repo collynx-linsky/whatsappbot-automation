@@ -446,6 +446,55 @@ Corresponds to spec sections 24, 25:
   the seeded plan's `max_whatsapp_accounts=1` limit returned a genuine
   `HTTP 402` with the expected error envelope.
 
+## Done (this session — "Security Hardening")
+
+Corresponds to spec section 20 / Phase 15's rate-limiting item:
+
+- **Rate limiting**: `DEFAULT_THROTTLE_CLASSES` (Anon/User blanket
+  backstop + `ScopedRateThrottle`) wired up platform-wide for the first
+  time. Four endpoints scope-throttled at rates tuned to what each
+  actually costs/risks: the public WhatsApp webhook (`120/minute`,
+  separate from the shared `anon` bucket so it can't be starved by
+  unrelated anonymous traffic like login attempts), `/api/v1/ai/test/`
+  (`20/hour` — real provider cost), `/api/v1/knowledge/documents/` `POST`
+  only (`30/hour` — real embedding-provider cost; `GET` deliberately
+  excluded via a per-method `get_throttles()` override so browsing the
+  knowledge base isn't rate-limited at upload rates), and
+  `/api/v1/campaigns/{id}/send/` (`10/hour` — messages real customers).
+  All six rates configurable via `.env` (`THROTTLE_RATE_*`).
+- **Real bug caught while writing the tests, not by review**: an
+  earlier version of `tests/test_security.py` overrode throttle rates
+  via the pytest-django `settings` fixture, and the tests *passed* —
+  but for the wrong reason. DRF's `SimpleRateThrottle.THROTTLE_RATES` is
+  a plain class attribute bound once at Django startup to a specific
+  dict object; reassigning `settings.REST_FRAMEWORK` later builds a new
+  dict that attribute never sees, so the "override" silently did
+  nothing and the tests were actually exercising the real production
+  rates (confirmed by isolating one test with debug prints showing the
+  dict identity mismatch). Fixed by using `monkeypatch.setitem()` to
+  mutate the actual bound dict in place. Full writeup in
+  `docs/security.md`'s Rate limiting section — a genuinely non-obvious
+  DRF gotcha worth remembering if this pattern is ever touched again.
+  Also required a new `tests/conftest.py` autouse fixture clearing
+  Django's cache before every test, since `LocMemCache` in test settings
+  persists for the whole `pytest` process and throttle counters would
+  otherwise silently accumulate across the entire 200+-test suite.
+- **Audit logging coverage**: closed the gap `docs/security.md` had
+  flagged open — five previously-silent actions now write an `AuditLog`
+  row: `AI_SETTINGS_UPDATED`, `KNOWLEDGE_DOCUMENT_UPLOADED`,
+  `WHATSAPP_ACCOUNT_CONNECTED`, `CAMPAIGN_SENT`, `INVOICE_GENERATED`.
+- 10 new passing tests (220 total) — each throttle scope proven to
+  actually trip (and, for the knowledge endpoint, proven that `GET`
+  does *not* share the `POST` budget), plus all five new audit actions
+  confirmed to fire a real `AuditLog` row.
+- `docs/security.md` updated (Rate limiting section rewritten, Audit
+  logging section updated, live-verification section extended).
+- **Also verified live**: 20 real consecutive `/api/v1/ai/test/`
+  requests against a running dev server (real Redis-backed cache, not
+  the in-memory test cache) all succeeded; the 21st returned a genuine
+  `429` with the expected error envelope — against the actual production
+  default rate, not a lowered test value.
+
 ## Not built yet — placeholder app directories only
 
 `backend/apps/{notifications,audit}/` exist as empty Python packages
@@ -456,7 +505,6 @@ models/views. They map to the spec's remaining phases:
 |---|---|---|
 | 4 (remainder) | Business management | Business settings UI (opening hours, branding, etc.) — staff invites are done, see above |
 | 14 | Frontend polish | WhatsApp-style inbox, onboarding wizard, full dashboard pages |
-| 15 | Testing/security | Broader test coverage, rate limiting |
 | 16 | Docker/deployment | Production Dockerfiles, CI, real deployment target |
 
 Also not yet started: `docs/deployment.md`, `docs/troubleshooting.md` —
