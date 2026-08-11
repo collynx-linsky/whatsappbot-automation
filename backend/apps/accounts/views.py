@@ -187,7 +187,9 @@ class MFAResetView(APIView):
             raise ValidationError("Cannot reset the business owner's MFA via this endpoint.")
 
         target.mfa_enabled = False
-        target.mfa_secret_encrypted = ""
+        target.mfa_secret_encrypted = (
+            ""  # nosec B105 - clearing the field, not a hardcoded credential
+        )
         target.save(update_fields=["mfa_enabled", "mfa_secret_encrypted"])
         target.mfa_backup_codes.all().delete()
 

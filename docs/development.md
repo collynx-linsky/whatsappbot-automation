@@ -57,6 +57,7 @@ interactively (not stored anywhere) and creates the `waba_user` role +
 | `format.ps1` | `isort`, `black`, `eslint --fix`. |
 | `backup-db.ps1` | `pg_dump` to `backups/` (gitignored), prunes old backups. See `docs/backup-recovery.md`. |
 | `restore-db.ps1` | **Destructive** — restores from a `backup-db.ps1` dump. Requires `-Force` + typed confirmation. |
+| `security-scan.ps1` | `bandit` + `pip-audit` (base and dev requirements) + `audit_permissions`. Same chain CI runs. See `docs/security.md` (Priority 10). |
 
 All of these were run for real against a live database this session — not
 just written and assumed to work.

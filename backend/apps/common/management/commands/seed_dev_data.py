@@ -195,7 +195,7 @@ SAMPLE_BUSINESSES = [
     },
 ]
 
-DEV_PASSWORD = "DevPassword!2026"
+DEV_PASSWORD = "DevPassword!2026"  # nosec B105 - intentional, printed, dev-only seed data password
 
 
 class Command(BaseCommand):

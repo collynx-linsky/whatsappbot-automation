@@ -1,0 +1,119 @@
+name: Security & CI
+
+# Dormant until this repo has a GitHub remote to push to — the workflow
+# file is committed now so it's ready the moment one exists. See
+# docs/security.md ("Priority 10: Automated vulnerability/security testing").
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: whatsapp_business_ai
+          POSTGRES_USER: waba_user
+          POSTGRES_PASSWORD: waba_pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U waba_user -d whatsapp_business_ai"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      DJANGO_SECRET_KEY: ci-only-secret-key-not-for-production
+      JWT_SIGNING_KEY: ci-only-jwt-signing-key-not-for-production
+      POSTGRES_DB: whatsapp_business_ai
+      POSTGRES_USER: waba_user
+      POSTGRES_PASSWORD: waba_pass
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+      # Fernet key so core.crypto (WhatsApp tokens, MFA secrets) has
+      # something valid to init with — not a real secret, CI-only.
+      FIELD_ENCRYPTION_KEY: "3EZ1v9k1L1p8f5o2Q4r7s0T2u5W8x1B4d7G0j3M6n9c="
+      WHATSAPP_VERIFY_TOKEN: ci-only-verify-token
+
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: "pip"
+          cache-dependency-path: backend/requirements/*.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements/development.txt
+
+      - name: Django system checks
+        run: python manage.py check
+
+      - name: Migrations check (no missing migrations)
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: ruff
+        run: python -m ruff check .
+
+      - name: black --check
+        run: python -m black --check .
+
+      - name: isort --check
+        run: python -m isort --check .
+
+      - name: pytest
+        run: python -m pytest -v
+
+      - name: Multi-tenant isolation / RBAC audit
+        run: python manage.py audit_permissions
+
+      - name: bandit (static security analysis)
+        run: python -m bandit -r apps core config -x "*/migrations/*,*/tests/*"
+
+      - name: pip-audit (base requirements)
+        run: python -m pip_audit -r requirements/base.txt
+
+      - name: pip-audit (development requirements)
+        run: python -m pip_audit -r requirements/development.txt
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: eslint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build

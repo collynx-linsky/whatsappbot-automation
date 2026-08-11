@@ -36,7 +36,9 @@ class Command(BaseCommand):
             return
 
         user.mfa_enabled = False
-        user.mfa_secret_encrypted = ""
+        user.mfa_secret_encrypted = (
+            ""  # nosec B105 - clearing the field, not a hardcoded credential
+        )
         user.save(update_fields=["mfa_enabled", "mfa_secret_encrypted"])
         user.mfa_backup_codes.all().delete()
 

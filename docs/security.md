@@ -262,6 +262,63 @@ requirement (spec section 19), not per-app optional.
 phase's five new actions actually fires an `AuditLog` row, not just that
 the underlying action succeeds.
 
+## Automated vulnerability/security testing (Priority 10)
+
+Two categories of automated checks, both runnable locally and wired into
+CI so they run on every push/PR once this repo has a GitHub remote:
+
+- **`bandit`** — Python static-analysis SAST, scans `apps/`, `core/`,
+  `config/` (migrations and tests excluded — generated code and
+  intentionally-adversarial test fixtures produce noise, not signal).
+  Currently a clean report (0 findings). 4 findings were investigated and
+  suppressed with `# nosec B105` + an inline justification comment after
+  direct code review confirmed each was a false positive (clearing an
+  encrypted field to `""`, a documented dev-only seed password, and a JWT
+  claim name — none are hardcoded credentials); see the git history of
+  `apps/accounts/management/commands/reset_mfa.py`,
+  `apps/accounts/views.py`, `apps/common/management/commands/seed_dev_data.py`,
+  and `config/settings/base.py` for exactly what was suppressed and why.
+  A `# nosec` suppression is never added to make a scan pass without that
+  read-the-code step first.
+- **`pip-audit`** — known-CVE scan of installed dependencies, run against
+  both `requirements/base.txt` and `requirements/development.txt`. This
+  session's run found 65 real vulnerabilities across 6 packages (Django,
+  `djangorestframework-simplejwt`, `requests`, `cryptography`, `pytest`,
+  `black`) — all fixed via version-pin upgrades that stayed within the
+  same major version where one exists (Django 5.2.5→5.2.17, avoiding the
+  5.x→6.x migration risk mid-security-pass) and confirmed via a full
+  `pytest` run (246/246 passing) after each upgrade, not just a clean
+  second `pip-audit` run. Both requirement files now audit clean.
+- **`manage.py audit_permissions`** — the Priority 1/2 static audit (see
+  the Authorization section above) re-used here as a regression guard:
+  every future view must declare explicit `permission_classes` and use
+  `TenantScopedQuerysetMixin` (or be on the reviewed manual-scoping
+  allowlist inside the command itself), or the command — and CI — fails.
+
+**Local usage**: `scripts/security-scan.ps1` runs all three (bandit,
+pip-audit ×2, `audit_permissions`) in sequence and exits non-zero if any
+step fails, mirroring `scripts/lint.ps1`/`scripts/test.ps1`.
+
+**CI**: `.github/workflows/security.yml` runs the full backend chain
+(Django checks, missing-migrations check, ruff/black/isort, pytest,
+`audit_permissions`, bandit, pip-audit ×2) against a real Postgres
+service container, plus a separate frontend job (eslint, typecheck,
+build). It is dormant until this repo is pushed to a GitHub remote — no
+remote exists yet (`git init`-only per this session's infra decisions) —
+but is committed now, fully written against the real toolchain, so it
+activates the moment one does. All secrets referenced (`DJANGO_SECRET_KEY`,
+`JWT_SIGNING_KEY`, `FIELD_ENCRYPTION_KEY`) are CI-only dummy values
+inlined in the workflow file, not real secrets — none of them ever touch
+a real tenant's data since the job only ever runs against a fresh,
+disposable CI Postgres container.
+
+**What's intentionally out of scope this pass**: DAST/penetration
+scanning (e.g. OWASP ZAP against a running instance) and container-image
+scanning (no production container images exist yet — see
+`docker-compose.yml`, currently a dev-only artifact). Both are reasonable
+additions once the platform has a real deployment target; adding them
+now against nothing would be security theater, not security.
+
 ## What was verified live this session
 
 - Real JWT login/refresh/logout round-trip via `curl` against a running
@@ -288,3 +345,15 @@ the underlying action succeeds.
   `pyotp` correctly returned real access/refresh tokens; the real access
   token worked against `/api/v1/auth/me/`; a wrong code correctly
   returned `400`. Full detail in `docs/mfa.md`.
+- Priority 10 dependency upgrades verified for real, not just pinned:
+  Django 5.2.5→5.2.17, `djangorestframework-simplejwt` 5.3.1→5.5.1,
+  `requests` 2.32.3→2.34.2, `cryptography` 43.0.3→50.0.0, `pytest`
+  8.3.3→9.0.3, `black` 24.10.0→26.3.1 were each actually installed into
+  the venv (not just edited in `requirements/*.txt`); the full 246-test
+  suite and `manage.py check` were re-run and passed after installation;
+  `pip-audit` was re-run afterward and confirmed 0 remaining known
+  vulnerabilities in both `requirements/base.txt` and
+  `requirements/development.txt` (down from 65 findings across 6
+  packages). `scripts/security-scan.ps1` was run end-to-end against the
+  live repo and confirmed clean (bandit, both pip-audit passes, and
+  `audit_permissions` all green) before being wired into CI.

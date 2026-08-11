@@ -495,6 +495,83 @@ Corresponds to spec section 20 / Phase 15's rate-limiting item:
   `429` with the expected error envelope — against the actual production
   default rate, not a lowered test value.
 
+## Done (this session — "Security Enhancement Pass — 10 Priorities")
+
+A dedicated hardening pass across the whole backend, prioritized 1-10 by
+the user. Full detail lives in `docs/security.md`, `docs/mfa.md`, and
+`docs/backup-recovery.md`; this is the roadmap-level summary.
+
+1. **Multi-tenant isolation** — audited programmatically (not just
+   re-read manually): a new `manage.py audit_permissions` command walks
+   every registered URL pattern via `django.urls.get_resolver()` and
+   confirms every queryset-based view uses `TenantScopedQuerysetMixin`
+   (or is on a reviewed manual-scoping allowlist). Made permanent and
+   CI-wireable, not a one-off audit.
+2. **RBAC / permission engine** — same audit command also confirms every
+   view declares explicit `permission_classes`/`get_permissions()`; no
+   view relies on DRF's implicit default.
+3. **MFA** — mandatory TOTP for every role, no exceptions (explicit user
+   decision — "Required for everyone", including Super Admin). Two-stage
+   login via purpose-tagged JWTs (`mfa_setup`/`mfa_challenge`), enforced
+   at the authentication layer (`core.authentication
+   .FullAccessJWTAuthentication`) rather than per-view, since this
+   codebase's convention of explicit `permission_classes` everywhere
+   would make a permission-layer-only rule silently bypassable. 10
+   single-use SHA-256-hashed backup codes per user. Three-tier recovery:
+   self-service backup codes → Business Owner/Super Admin reset endpoint
+   → break-glass `manage.py reset_mfa` for a locked-out Super Admin. Full
+   design writeup in `docs/mfa.md`.
+4. **Secure authentication/session management** — `login` and
+   `mfa_verify` throttle scopes (brute-force defense on both password and
+   6-digit TOTP guessing); `GET /api/v1/auth/sessions/` and
+   `POST /api/v1/auth/sessions/{jti}/revoke/` built on
+   `rest_framework_simplejwt.token_blacklist`'s existing
+   `OutstandingToken`/`BlacklistedToken` models rather than a parallel
+   session model.
+5. **Audit logging** — `MFA_ENABLED`/`MFA_RESET` actions added to the
+   existing `AuditLog` platform-wide pattern.
+6. **API security + rate limiting** — the two new throttle scopes above,
+   layered on the rate-limiting work already done in the earlier
+   "Security Hardening" section (Phase 15).
+7. **Database security** — least-privilege DB role verified live against
+   real `pg_roles` (`waba_user` is not superuser, cannot create roles);
+   `sslmode` made configurable (`prefer` dev / `require` production
+   default) via `POSTGRES_SSLMODE`; exhaustive grep across the whole
+   codebase confirmed zero raw-SQL/`.extra()`/`RawSQL` usage outside
+   migrations.
+8. **Security headers + HTTPS** — new `core.middleware
+   .SecurityHeadersMiddleware` adds `Content-Security-Policy` and
+   `Permissions-Policy` (Django has no built-in setting for either);
+   `SECURE_REFERRER_POLICY`/`SECURE_CROSS_ORIGIN_OPENER_POLICY` set
+   explicitly in `production.py`.
+9. **Backup/disaster recovery** — `scripts/backup-db.ps1`
+   (`pg_dump -Fc`, configurable retention) and `scripts/restore-db.ps1`
+   (destructive, gated behind `-Force` + typed confirmation — proven to
+   fail safe under a non-interactive shell rather than silently
+   proceeding). `docs/backup-recovery.md` explicitly calls out that
+   `FIELD_ENCRYPTION_KEY` must be backed up separately from the database
+   dump (losing it makes every encrypted token/MFA secret unrecoverable
+   even with the DB intact).
+10. **Automated vulnerability/security testing** — `bandit` (0 findings,
+    4 verified false positives suppressed with justification) and
+    `pip-audit` (65 real CVEs found and fixed via version-pin upgrades,
+    confirmed against the live 246-test suite after each upgrade, now 0
+    remaining across both `requirements/base.txt` and
+    `requirements/development.txt`) genuinely run against the real
+    codebase, not just described. `scripts/security-scan.ps1` bundles
+    both plus `audit_permissions`. `.github/workflows/security.yml`
+    wires the same chain (plus Django checks, missing-migrations check,
+    ruff/black/isort, pytest, and a frontend eslint/typecheck/build job)
+    into CI — dormant until this repo has a GitHub remote (still
+    `git init`-only), but written and verified against the real
+    toolchain now rather than left as a stub. This is the CI piece of
+    the still-open Phase 16 "Docker/deployment" row below; Dockerfiles
+    and an actual deployment target remain unbuilt.
+
+246 tests passing (up from 220 at the end of the Phase 15 rate-limiting
+work), 0 bandit findings, 0 pip-audit findings, `audit_permissions`
+clean across 62 view classes / 260 URL patterns.
+
 ## Not built yet — placeholder app directories only
 
 `backend/apps/{notifications,audit}/` exist as empty Python packages
