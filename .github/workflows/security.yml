@@ -1,14 +1,17 @@
 name: Security & CI
 
-# Dormant until this repo has a GitHub remote to push to — the workflow
-# file is committed now so it's ready the moment one exists. See
-# docs/security.md ("Priority 10: Automated vulnerability/security testing").
+# Manual-trigger only for now (workflow_dispatch) — the repo has a GitHub
+# remote (origin) but automatic push/PR triggers are deliberately off
+# until this is ready to run as part of normal review flow. Flip this by
+# uncommenting the `push`/`pull_request` triggers below when that's
+# wanted. See docs/security.md ("Priority 10: Automated vulnerability/
+# security testing").
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch: {}
+  # push:
+  #   branches: [main]
+  # pull_request:
+  #   branches: [main]
 
 jobs:
   backend:

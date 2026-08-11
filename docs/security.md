@@ -303,10 +303,12 @@ step fails, mirroring `scripts/lint.ps1`/`scripts/test.ps1`.
 (Django checks, missing-migrations check, ruff/black/isort, pytest,
 `audit_permissions`, bandit, pip-audit ×2) against a real Postgres
 service container, plus a separate frontend job (eslint, typecheck,
-build). It is dormant until this repo is pushed to a GitHub remote — no
-remote exists yet (`git init`-only per this session's infra decisions) —
-but is committed now, fully written against the real toolchain, so it
-activates the moment one does. All secrets referenced (`DJANGO_SECRET_KEY`,
+build). The repo now has a GitHub remote (`origin`), but the workflow's
+`push`/`pull_request` triggers are commented out — only `workflow_dispatch`
+(manual "Run workflow" in the Actions tab) is live for now, so it doesn't
+start running automatically on every commit before that's wanted. Flip it
+on by uncommenting those two triggers in the workflow file when ready.
+All secrets referenced (`DJANGO_SECRET_KEY`,
 `JWT_SIGNING_KEY`, `FIELD_ENCRYPTION_KEY`) are CI-only dummy values
 inlined in the workflow file, not real secrets — none of them ever touch
 a real tenant's data since the job only ever runs against a fresh,

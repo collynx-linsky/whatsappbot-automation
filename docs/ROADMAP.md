@@ -562,11 +562,13 @@ the user. Full detail lives in `docs/security.md`, `docs/mfa.md`, and
     both plus `audit_permissions`. `.github/workflows/security.yml`
     wires the same chain (plus Django checks, missing-migrations check,
     ruff/black/isort, pytest, and a frontend eslint/typecheck/build job)
-    into CI — dormant until this repo has a GitHub remote (still
-    `git init`-only), but written and verified against the real
-    toolchain now rather than left as a stub. This is the CI piece of
-    the still-open Phase 16 "Docker/deployment" row below; Dockerfiles
-    and an actual deployment target remain unbuilt.
+    into CI. The repo now has a GitHub remote (`origin`, pushed to
+    `main`), but the workflow's `push`/`pull_request` triggers are
+    deliberately commented out for now — only manual `workflow_dispatch`
+    is live, so it runs on demand rather than on every commit until
+    that's wanted. This is the CI piece of the still-open Phase 16
+    "Docker/deployment" row below; Dockerfiles and an actual deployment
+    target remain unbuilt.
 
 246 tests passing (up from 220 at the end of the Phase 15 rate-limiting
 work), 0 bandit findings, 0 pip-audit findings, `audit_permissions`
