@@ -161,6 +161,21 @@ def generate_ai_reply(inbound_message: Message) -> Message | None:
         )
         return None
 
+    from apps.billing.services import increment_usage, is_over_limit
+
+    if is_over_limit(conversation.tenant, "ai_messages"):
+        # A real, metered cost per call (unlike e.g. Customer rows) — this
+        # one degrades the same way "no provider configured" does, rather
+        # than erroring, since generate_ai_reply runs from a Celery task
+        # with no HTTP request to return a 402 to. See docs/billing.md.
+        if settings_.human_handoff_enabled:
+            return _hand_off(conversation, settings_, "AI usage limit reached for this month")
+        logger.warning(
+            "Tenant %s is over its AI message limit and handoff is disabled — no reply sent.",
+            conversation.tenant_id,
+        )
+        return None
+
     business = settings_.business
     system_prompt = build_system_prompt(business, settings_)
     system_prompt = append_knowledge_context(system_prompt, business, inbound_message.content)
@@ -172,6 +187,7 @@ def generate_ai_reply(inbound_message: Message) -> Message | None:
         user_message=inbound_message.content,
         max_tokens=settings_.max_response_length,
     )
+    increment_usage(conversation.tenant, "ai_messages")
 
     if not reply["success"] or reply["confidence"] < settings_.confidence_threshold:
         if settings_.human_handoff_enabled:

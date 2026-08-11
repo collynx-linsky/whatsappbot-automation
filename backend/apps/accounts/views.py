@@ -175,6 +175,10 @@ class StaffListCreateView(generics.ListCreateAPIView):
                 "A super admin has no tenant of their own and cannot add staff directly."
             )
 
+        from apps.billing.services import check_limit
+
+        check_limit(request.user.tenant, "users")
+
         serializer = CreateStaffSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data

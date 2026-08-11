@@ -28,6 +28,12 @@ class WhatsAppAccountListCreateView(
     serializer_class = WhatsAppAccountSerializer
     queryset = WhatsAppAccount.objects.select_related("business").all()
 
+    def perform_create(self, serializer):
+        from apps.billing.services import check_limit
+
+        check_limit(self.request.user.tenant, "whatsapp_accounts")
+        super().perform_create(serializer)
+
 
 class WhatsAppAccountDetailView(TenantScopedQuerysetMixin, generics.RetrieveUpdateAPIView):
     """GET/PATCH /api/v1/whatsapp/accounts/{id}/"""

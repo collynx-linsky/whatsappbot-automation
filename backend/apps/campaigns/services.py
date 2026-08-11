@@ -117,6 +117,10 @@ def send_campaign(campaign: Campaign) -> None:
         _fail_campaign(campaign, "Segment has no opted-in customers.")
         return
 
+    from apps.billing.services import increment_usage
+
+    increment_usage(campaign.tenant, "campaign_sends")
+
     provider = WhatsAppCloudProvider(
         phone_number_id=account.phone_number_id, access_token=account.access_token
     )

@@ -162,6 +162,10 @@ class CampaignSendView(TenantScopedQuerysetMixin, generics.GenericAPIView):
                 f"Campaign is '{campaign.status}' — only a draft or scheduled campaign can be sent."
             )
 
+        from apps.billing.services import check_limit
+
+        check_limit(campaign.tenant, "campaign_sends")
+
         # Mark scheduled *before* enqueueing, then re-fetch after — under
         # CELERY_TASK_ALWAYS_EAGER (tests) the task runs synchronously
         # inside .delay() and can already have moved the campaign to

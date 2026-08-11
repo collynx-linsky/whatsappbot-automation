@@ -9,14 +9,16 @@ a small product catalog per business, one confirmed sample order tying
 a seeded conversation to real product data, default AI settings (hybrid
 mode, human handoff on), a couple of RAG knowledge base documents per
 business (processed synchronously, immediately usable without a Celery
-worker running), one customer per business opted in to marketing, and a
+worker running), one customer per business opted in to marketing, a
 sample MessageTemplate/Segment/draft Campaign per business (never
-auto-sent — see docs/campaigns.md). Later phases extend this command as
-those apps land — see docs/ROADMAP.md.
+auto-sent — see docs/campaigns.md), and the current month's Invoice per
+business (see docs/billing.md — no real charge happens). Later phases
+extend this command as those apps land — see docs/ROADMAP.md.
 
 All data is clearly fictional. Safe to re-run (idempotent by email/slug).
 """
 
+from datetime import timedelta
 from decimal import Decimal
 
 from django.core.management.base import BaseCommand
@@ -25,6 +27,8 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.ai.models import AISettings
+from apps.billing.models import Invoice
+from apps.billing.services import current_month_start, generate_invoice
 from apps.businesses.models import Business
 from apps.campaigns.models import Campaign, MessageTemplate, Segment
 from apps.conversations.models import Conversation
@@ -243,10 +247,11 @@ class Command(BaseCommand):
                         existing_owner.tenant, existing_owner, spec.get("customers", [])
                     )
                     self._seed_campaign_setup(existing_owner.tenant, business, existing_owner)
+                    self._seed_invoice(existing_owner.tenant)
                 self.stdout.write(
                     self.style.WARNING(
                         f"{spec['business_name']}: owner already exists - skipping creation, "
-                        "backfilled AI settings + knowledge base + campaign setup."
+                        "backfilled AI settings + knowledge base + campaign setup + invoice."
                     )
                 )
                 continue
@@ -287,6 +292,7 @@ class Command(BaseCommand):
             if customer and products:
                 self._seed_sample_order(tenant, owner, customer, conversation, products[0])
             self._seed_campaign_setup(tenant, business, owner)
+            self._seed_invoice(tenant)
 
         self._report_totals()
 
@@ -404,6 +410,22 @@ class Command(BaseCommand):
         self.stdout.write(
             self.style.SUCCESS("  + campaign setup (1 template, 1 segment, 1 draft campaign)")
         )
+
+    def _seed_invoice(self, tenant):
+        """
+        The current month's Invoice for this tenant — see docs/billing.md
+        for what this does and doesn't mean (a real, snapshotted billing
+        record; no payment gateway, no actual charge). Idempotent per
+        (tenant, period_start), same as generate_invoice() itself.
+        """
+        period_start = current_month_start()
+        if Invoice.objects.filter(tenant=tenant, period_start=period_start).exists():
+            return
+        next_month = (period_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+        period_end = next_month - timedelta(days=1)
+        invoice = generate_invoice(tenant, period_start, period_end)
+        if invoice is not None:
+            self.stdout.write(self.style.SUCCESS(f"  + invoice {invoice.invoice_number}"))
 
     def _seed_products(self, tenant, product_specs):
         """Sample catalog entries — enough variety to seed a sample order per business."""
@@ -525,6 +547,6 @@ class Command(BaseCommand):
                 f"{AISettings.objects.count()} AI settings, "
                 f"{KnowledgeDocument.objects.count()} knowledge documents, "
                 f"{MessageTemplate.objects.count()} templates, {Segment.objects.count()} segments, "
-                f"{Campaign.objects.count()} campaigns."
+                f"{Campaign.objects.count()} campaigns, {Invoice.objects.count()} invoices."
             )
         )

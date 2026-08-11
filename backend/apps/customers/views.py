@@ -21,6 +21,18 @@ class CustomerListCreateView(
     search_fields = ["name", "phone", "email"]
     ordering_fields = ["created_at", "last_interaction_at", "name"]
 
+    def perform_create(self, serializer):
+        # Only enforced on this manually-initiated API path — a real
+        # inbound WhatsApp message from a new customer (apps.whatsapp's
+        # webhook-driven get_or_create) is never blocked by a plan limit;
+        # dropping a genuine customer inquiry over a quota would be a
+        # worse outcome than a business briefly exceeding its plan. See
+        # docs/billing.md.
+        from apps.billing.services import check_limit
+
+        check_limit(self.request.user.tenant, "customers")
+        super().perform_create(serializer)
+
 
 class CustomerDetailView(TenantScopedQuerysetMixin, generics.RetrieveUpdateAPIView):
     """GET/PATCH /api/v1/customers/{id}/"""

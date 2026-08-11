@@ -10,9 +10,9 @@ used as a substitute for real foreign keys).
 Database-configurable subscription plan (spec section 24 — plans are never
 hardcoded in code). Usage limits (`max_users`, `max_whatsapp_accounts`,
 `max_ai_messages_per_month`, `max_customers`, `max_campaigns_per_month`,
-`max_storage_mb`) are plain integer fields; `0` means unlimited. Only the
-shape exists yet — nothing currently *enforces* these limits (that's
-`apps.billing`, a later phase).
+`max_storage_mb`) are plain integer fields; `0` means unlimited. Enforced
+by `apps.billing` (Phase 13) for every field except `max_storage_mb` —
+see `docs/billing.md`.
 
 ### `tenants.Tenant`
 The multi-tenancy isolation boundary. Fields: `id`, `name`, `slug`
@@ -164,6 +164,22 @@ no per-recipient personalization yet), `status`
 (`OneToOneField` to `messaging.Message`, nullable), `status`
 (`pending|sent|failed|skipped`), `skip_reason`, `error_message`,
 `sent_at`; unique `(campaign, customer)`. All four inherit
+`core.models.BaseModel`.
+
+### `billing.UsageRecord` / `Invoice`
+Plan limit enforcement (spec sections 24, 25) — see `docs/billing.md` for
+why there's no separate `Subscription` model (`tenants.Tenant` already
+carries plan/status/period-end fields). `UsageRecord`: `metric`
+(`ai_messages|campaign_sends` — the two Plan limits that are genuinely
+"per month," unlike `max_users`/`max_customers`/`max_whatsapp_accounts`
+which are live counts needing no stored record), `period` (first day of
+the calendar month), `count`; unique `(tenant, metric, period)`.
+`Invoice`: `invoice_number` (deterministic — `INV-<tenant slug>-<YYYYMM>`,
+naturally idempotent), `period_start`/`period_end`, `plan_name`/`amount`/
+`currency` (snapshotted at generation time, same pattern as
+`OrderItem.product_name`/`unit_price`), `status`
+(`draft|issued|paid|overdue|void`), `issued_at`/`due_at`/`paid_at`,
+`notes`; unique `(tenant, period_start)`. Both inherit
 `core.models.BaseModel`.
 
 ### `products.Product`

@@ -61,6 +61,7 @@ LOCAL_APPS = [
     "apps.knowledge",
     "apps.campaigns",
     "apps.analytics",
+    "apps.billing",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -317,6 +318,7 @@ SPECTACULAR_SETTINGS = {
         {"name": "knowledge", "description": "RAG knowledge base documents"},
         {"name": "campaigns", "description": "Marketing campaigns, templates & segments"},
         {"name": "analytics", "description": "Per-tenant dashboard & platform-wide stats"},
+        {"name": "billing", "description": "Plan usage, limits & invoices"},
     ],
 }
 

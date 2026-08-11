@@ -213,8 +213,24 @@ computed.
 | GET | `dashboard/` | staff+ | The caller's own tenant: funnel, conversation/message counts, currency-grouped order revenue, AI performance, response time, top questions. Optional `?start=&end=` (ISO 8601 datetimes) — an unparseable value returns `400`. |
 | GET | `platform/` | super admin | Platform-wide: tenant/user counts by status/role, totals, currency-grouped revenue, 30-day signup trend. |
 
+## Billing — `/api/v1/billing/`
+
+See `docs/billing.md` for which Plan limits are enforced, and where.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `usage/` | staff+ | The caller's own tenant: usage vs. limit for every enforced Plan field. |
+| GET | `invoices/` | manager+ | The caller's own tenant's billing history. |
+| GET | `invoices/<uuid:pk>/` | manager+ | 404 if in another tenant. |
+| POST | `invoices/generate/` | super admin | `{tenant, period_start?}` — manually generates one tenant's invoice for a period (defaults to the current month). Idempotent per `(tenant, period_start)`. |
+
+Exceeding a Plan limit on any create endpoint that enforces one (`POST
+/api/v1/staff/`, `POST /api/v1/whatsapp/accounts/`, `POST
+/api/v1/customers/`, `POST /api/v1/campaigns/{id}/send/`) returns `402
+Payment Required`, not `400`/`403` — see `docs/billing.md`.
+
 ## Not built yet
 
 Every other `/api/v1/<domain>/` path listed in the master spec
-(`notifications/`, `billing/`, `audit/`) is not implemented — see
-`docs/ROADMAP.md` for which phase builds each one.
+(`notifications/`, `audit/`) is not implemented — see `docs/ROADMAP.md`
+for which phase builds each one.

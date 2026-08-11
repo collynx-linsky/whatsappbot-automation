@@ -395,16 +395,66 @@ Corresponds to spec section 17:
   `?start=`, a future `?start=` correctly zeroing every count) both
   proven live, not just under `pytest`.
 
+## Done (this session — "Billing")
+
+Corresponds to spec sections 24, 25:
+
+- **No separate `Subscription` model** — `tenants.Tenant` already carries
+  `plan`/`status`/`trial_ends_at`/`subscription_ends_at`; a second model
+  duplicating that risked two disagreeing sources of truth for no real
+  benefit. Documented as a deliberate decision, not a gap — see
+  `docs/billing.md`.
+- Models: `billing.UsageRecord` (period-scoped usage — `ai_messages`/
+  `campaign_sends`, the two Plan limits that are genuinely "per month"),
+  `billing.Invoice` (deterministic idempotent invoice numbers, snapshotted
+  plan name/price, `draft→issued→paid/overdue/void` status).
+- **Plan limits actually enforced**, not just read: `max_users` (staff
+  creation), `max_whatsapp_accounts` (account connection), `max_customers`
+  (manual customer creation via the API only — **never** on the WhatsApp
+  webhook's real inbound customer creation, a deliberate call: dropping a
+  genuine customer inquiry over a quota is worse than a business briefly
+  exceeding it), `max_ai_messages_per_month` (checked right before the
+  real provider call in `apps.ai.services.generate_ai_reply`, degrading
+  to human handoff exactly like "no API key configured" already does —
+  it runs from a Celery task with no HTTP request to error out to),
+  `max_campaigns_per_month` (checked before a campaign send is even
+  queued). `max_storage_mb` is explicitly **not** enforced — no file-size
+  tracking exists across every upload type to sum against; flagged
+  honestly rather than half-built against just one.
+- New `apps.billing.exceptions.PlanLimitExceeded` — a real `402 Payment
+  Required` (not 403/400), flowing through the same error envelope as
+  every other exception in this API.
+- API: `GET /api/v1/billing/usage/`, `GET /api/v1/billing/invoices/` +
+  `.../{id}/`, `POST /api/v1/billing/invoices/generate/` (super admin,
+  manual per-tenant trigger — no payment gateway exists to trigger this
+  automatically).
+- New `python manage.py generate_invoices` management command — the
+  batch counterpart, one invoice per active/trial tenant with a plan,
+  idempotent per period. Not scheduled anywhere (no `celery beat` entry)
+  since there's no payment gateway for the resulting invoices to be
+  acted on by.
+- 25 new passing tests (210 total) — `check_limit`/`is_over_limit` in
+  isolation, usage tracking, invoice snapshotting/idempotency, and
+  (the part that actually matters) enforcement wired into the real
+  views, hitting genuine `402`s against a purpose-built low-limit `Plan`.
+  All passed on the first run.
+- `docs/billing.md` (new); `docs/database.md`, `docs/api.md` updated.
+- **Also verified live**: `GET /api/v1/billing/usage/` against the real
+  seeded ABC Electronics tenant returned real counts; `generate_invoices`
+  created 3 real invoices (one per seeded tenant) and was confirmed
+  idempotent on a second run; connecting a second WhatsApp account past
+  the seeded plan's `max_whatsapp_accounts=1` limit returned a genuine
+  `HTTP 402` with the expected error envelope.
+
 ## Not built yet — placeholder app directories only
 
-`backend/apps/{notifications,billing,audit}/` exist as empty Python
-packages (just `__init__.py`), not registered in `INSTALLED_APPS`, no
+`backend/apps/{notifications,audit}/` exist as empty Python packages
+(just `__init__.py`), not registered in `INSTALLED_APPS`, no
 models/views. They map to the spec's remaining phases:
 
 | Phase | Spec # | Builds |
 |---|---|---|
 | 4 (remainder) | Business management | Business settings UI (opening hours, branding, etc.) — staff invites are done, see above |
-| 13 | Billing/subscriptions | `apps.billing` — actually enforce `Plan` limits, `Subscription`, `UsageRecord`, `Invoice` |
 | 14 | Frontend polish | WhatsApp-style inbox, onboarding wizard, full dashboard pages |
 | 15 | Testing/security | Broader test coverage, rate limiting |
 | 16 | Docker/deployment | Production Dockerfiles, CI, real deployment target |
