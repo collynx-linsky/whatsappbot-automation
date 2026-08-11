@@ -349,16 +349,61 @@ Corresponds to spec Phases 12 and 26:
   that mislabeling always surfaces this way, not as an immediate error at
   the FK declaration site.
 
+## Done (this session — "Analytics")
+
+Corresponds to spec section 17:
+
+- **No new persisted models** — every metric is computed live from
+  existing data (`Customer`, `Conversation`, `Message`, `Order`,
+  `AuditLog`), not a materialized snapshot. Documented as a deliberate
+  MVP-scale trade-off with a clear upgrade path (a `celery beat`
+  snapshot job) once it stops being fast enough — see `docs/analytics.md`.
+- `apps.analytics.services`: customer funnel (lead-pipeline stage
+  counts), conversation/message counts, order revenue **grouped by
+  currency, never summed across currencies** (a tenant's orders aren't
+  guaranteed to share one), AI performance (replies sent vs. handoffs,
+  reading real `Message`/`AuditLog` data from Phase 8), average response
+  time (single ordered pass over a tenant's messages — measures time from
+  the *first* unanswered inbound message to the next outbound reply, so a
+  burst of consecutive customer messages before a reply counts as one
+  wait, not several), top customer questions (normalized-text grouping,
+  **only questions asked more than once** — a list of every unique thing
+  anyone ever asked isn't a "most common" list).
+- `apps.analytics.platform_services` — deliberately a separate module
+  (not just a separate function) from the tenant-scoped one, since every
+  query here reads across *every* tenant; keeping them apart makes it
+  harder to accidentally call platform-wide aggregation from a
+  tenant-scoped view. Tenant/user counts by status/role, platform
+  totals, platform-wide currency-grouped revenue, 30-day signup trend.
+- API: `GET /api/v1/analytics/dashboard/` (staff+, own tenant, optional
+  `?start=&end=` ISO 8601 bounds), `GET /api/v1/analytics/platform/`
+  (super admin only).
+- 18 new passing tests (185 total) — every metric function tested
+  directly against real data (no HTTP/provider mocking needed at all,
+  the first phase this session that touches zero external services), the
+  response-time algorithm's consecutive-inbound edge case specifically,
+  top-questions' repeated-only filter, and the API surface (tenant
+  isolation, RBAC on both endpoints, invalid-date-bound rejection). All
+  passed on the first run — no bugs caught this phase.
+- `docs/analytics.md` (new); `docs/api.md`, `docs/ROADMAP.md` updated.
+- **Also verified live** against a running dev server: the dashboard for
+  the real seeded ABC Electronics tenant returned real, cross-checked
+  counts; the platform endpoint (as the real seeded super admin) returned
+  accurate totals across all 3 seeded tenants with correctly-separated
+  `KES`/`TZS`/`UGX` revenue; RBAC (`403` for a business owner on the
+  platform endpoint) and date-bound validation (`400` on an unparseable
+  `?start=`, a future `?start=` correctly zeroing every count) both
+  proven live, not just under `pytest`.
+
 ## Not built yet — placeholder app directories only
 
-`backend/apps/{analytics,notifications,billing,audit}/` exist as empty
-Python packages (just `__init__.py`), not registered in `INSTALLED_APPS`,
-no models/views. They map to the spec's remaining phases:
+`backend/apps/{notifications,billing,audit}/` exist as empty Python
+packages (just `__init__.py`), not registered in `INSTALLED_APPS`, no
+models/views. They map to the spec's remaining phases:
 
 | Phase | Spec # | Builds |
 |---|---|---|
 | 4 (remainder) | Business management | Business settings UI (opening hours, branding, etc.) — staff invites are done, see above |
-| 12 | Analytics | `apps.analytics` — funnel (conversation → lead → qualified → order → revenue), platform-level stats for super admin |
 | 13 | Billing/subscriptions | `apps.billing` — actually enforce `Plan` limits, `Subscription`, `UsageRecord`, `Invoice` |
 | 14 | Frontend polish | WhatsApp-style inbox, onboarding wizard, full dashboard pages |
 | 15 | Testing/security | Broader test coverage, rate limiting |

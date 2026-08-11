@@ -203,8 +203,18 @@ template-only proactive sends).
 | POST | `<uuid:pk>/send/` | manager+ | Only from `draft`/`scheduled` (`400` otherwise). Queues `send_campaign_task` (`low_priority` queue) and returns the campaign with `status=scheduled` — or whatever the task already resolved it to, if it ran synchronously (e.g. under `CELERY_TASK_ALWAYS_EAGER`). |
 | GET | `<uuid:pk>/recipients/` | staff+ | Per-customer send outcome: `status`, `skip_reason`, `error_message`, `sent_at`. |
 
+## Analytics — `/api/v1/analytics/`
+
+See `docs/analytics.md` for exactly what each metric means and how it's
+computed.
+
+| Method | Path | Auth | Notes |
+|---|---|---|---|
+| GET | `dashboard/` | staff+ | The caller's own tenant: funnel, conversation/message counts, currency-grouped order revenue, AI performance, response time, top questions. Optional `?start=&end=` (ISO 8601 datetimes) — an unparseable value returns `400`. |
+| GET | `platform/` | super admin | Platform-wide: tenant/user counts by status/role, totals, currency-grouped revenue, 30-day signup trend. |
+
 ## Not built yet
 
 Every other `/api/v1/<domain>/` path listed in the master spec
-(`analytics/`, `notifications/`, `billing/`, `audit/`) is not
-implemented — see `docs/ROADMAP.md` for which phase builds each one.
+(`notifications/`, `billing/`, `audit/`) is not implemented — see
+`docs/ROADMAP.md` for which phase builds each one.
