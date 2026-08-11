@@ -1,17 +1,17 @@
 name: Security & CI
 
-# Manual-trigger only for now (workflow_dispatch) — the repo has a GitHub
-# remote (origin) but automatic push/PR triggers are deliberately off
-# until this is ready to run as part of normal review flow. Flip this by
-# uncommenting the `push`/`pull_request` triggers below when that's
-# wanted. See docs/security.md ("Priority 10: Automated vulnerability/
-# security testing").
+# Runs automatically on every push/PR to main, plus on-demand via
+# workflow_dispatch. Was manual-trigger-only from Priority 10 (see
+# docs/security.md) until this commit — deliberately enabled once the
+# frontend Typecheck-before-Build ordering bug (Cannot find name
+# 'LayoutProps') that broke a fresh checkout was actually found, fixed,
+# and verified, not before.
 on:
   workflow_dispatch: {}
-  # push:
-  #   branches: [main]
-  # pull_request:
-  #   branches: [main]
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   backend:
