@@ -628,6 +628,68 @@ for all of these, zero frontend exists yet): WhatsApp inbox
 (conversations/messages), AI settings, knowledge base, campaigns,
 analytics, billing. Next frontend session picks one of these up.
 
+## Done (this session — "Frontend: WhatsApp-style inbox")
+
+User picked this as the next frontend module (over AI settings/knowledge
+base, campaigns/analytics, billing — all still backend-only). The
+dashboard's placeholder text previously said the inbox "lands in the next
+build phases"; it now exists.
+
+- `types/index.ts`: added `Conversation`, `ConversationAssignment`,
+  `Message`, `MessageAttachment`, and their status/type unions. Extended
+  `Customer` with `marketing_opt_in`/`marketing_opt_in_at` and gave
+  `source` a real union type (both existed on the backend serializer but
+  were missed in the earlier products/orders pass).
+- `lib/api.ts`: `listConversations`, `createConversation`,
+  `updateConversation` (PATCH — status/ai_enabled/tags),
+  `assignConversation` (the dedicated `/assign/` endpoint, not a generic
+  PATCH — it's the one that writes an audit-log entry and assignment
+  history), `listConversationAssignments`, `listMessages`, `sendMessage`
+  (hardcodes `sender_type: "staff"` since that's the only value this
+  backend phase accepts). Added a small `toQueryString()` helper and
+  extended `listCustomers()` to take `{search, status, source, page}`
+  params (it previously took none).
+- New page `app/dashboard/inbox/page.tsx`: two-pane WhatsApp-style
+  layout — conversation list (status filter, unread badge, last-message
+  preview) on the left, message thread (bubbles right-aligned for
+  staff/AI, left for the customer, centered for system messages) with a
+  reply composer on the right. Conversation header exposes status
+  (`<select>`, PATCH), assignee (`<select>` from `listStaff()`, the
+  dedicated assign endpoint), and the AI-handoff toggle (`ai_enabled`
+  checkbox, PATCH) inline — no modal, matching this codebase's existing
+  no-modal-library convention.
+- **No real-time channel exists on the backend** (confirmed: no
+  `channels`/consumers/websocket routing anywhere) — the page polls
+  instead: the conversation list every 15s, an open thread's messages
+  every 4s, both cleared on unmount via plain `useEffect` + `setInterval`
+  (no new dependency, matching the rest of the frontend's `useState`/
+  `useEffect`-only data-fetching style).
+- **Known limitation, stated honestly**: there's no "mark read" endpoint
+  server-side, so `unread_count` is display-only and is never reset from
+  the client — opening a conversation doesn't clear its badge. Attachments
+  are read-only on the backend serializer (no upload endpoint exists), so
+  the composer is text-only, matching what the API can actually accept.
+- Live contract verification via `curl` against a running server, using
+  a throwaway staff account (kept fully separate from whatever the user
+  was doing in their own browser session at the time) and a real seeded
+  customer: created a conversation, posted a staff message and confirmed
+  `last_message_preview`/`last_message_at` updated automatically, listed
+  messages filtered by `?conversation=`, assigned it via the dedicated
+  endpoint and confirmed both `assigned_to_name` and a real assignment-
+  history row, PATCHed `status` and `ai_enabled` and confirmed both
+  round-tripped. All test data deleted afterward. `npx tsc --noEmit`,
+  `npm run lint`, `npm run build` all clean.
+- Same stated limitation as the MFA pass: no browser-automation tool is
+  available in this environment, so the two-pane layout, polling
+  behavior, and message-bubble rendering weren't clicked through by me —
+  only the HTTP contract and build/typecheck/lint were verified.
+
+Still deferred: AI settings, knowledge base, campaigns, analytics,
+billing frontends, and a WhatsApp-account-connection settings page
+(conversations/messages work independently of whether an account is
+connected — that only affects whether outbound sends actually reach
+Meta, which is a separable, smaller follow-up).
+
 ## Not built yet — placeholder app directories only
 
 `backend/apps/{notifications,audit}/` exist as empty Python packages

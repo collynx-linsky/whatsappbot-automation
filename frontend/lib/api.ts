@@ -6,12 +6,18 @@
 import type {
   ApiErrorEnvelope,
   Business,
+  Conversation,
+  ConversationAssignment,
+  ConversationStatus,
+  CreateConversationPayload,
   CreateOrderPayload,
   CreateProductPayload,
   CreateStaffPayload,
   CreateStaffResponse,
   Customer,
   LoginResponse,
+  Message,
+  MessageType,
   MFASetupConfirmResponse,
   MFASetupResponse,
   MFAVerifyResponse,
@@ -27,6 +33,18 @@ import type {
   User,
 } from "@/types";
 import { clearSession, getAccessToken, getRefreshToken, setAccessToken } from "./auth";
+
+// Builds a "?key=value&..." query string, skipping undefined/null/empty
+// values so callers can pass a params object without conditionals.
+function toQueryString(params: Record<string, string | number | boolean | undefined>): string {
+  const entries = Object.entries(params).filter(
+    ([, v]) => v !== undefined && v !== null && v !== "",
+  );
+  if (entries.length === 0) return "";
+  const search = new URLSearchParams();
+  for (const [k, v] of entries) search.set(k, String(v));
+  return `?${search.toString()}`;
+}
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
@@ -258,8 +276,13 @@ export function updateStaff(
 }
 
 // ── Customers ────────────────────────────────────────────────
-export function listCustomers(): Promise<Paginated<Customer>> {
-  return apiFetch<Paginated<Customer>>("/customers/");
+export function listCustomers(params?: {
+  search?: string;
+  status?: string;
+  source?: string;
+  page?: number;
+}): Promise<Paginated<Customer>> {
+  return apiFetch<Paginated<Customer>>(`/customers/${toQueryString(params ?? {})}`);
 }
 
 // ── Products ─────────────────────────────────────────────────
@@ -297,5 +320,77 @@ export function updateOrderStatus(id: string, newStatus: OrderStatus): Promise<O
   return apiFetch<Order>(`/orders/${id}/status/`, {
     method: "POST",
     body: JSON.stringify({ status: newStatus }),
+  });
+}
+
+// ── Inbox: conversations & messages ─────────────────────────
+//
+// No real-time channel exists on the backend (no websockets/SSE) — the
+// inbox page polls these endpoints on an interval rather than subscribing
+// to anything.
+export function listConversations(params?: {
+  status?: ConversationStatus;
+  assigned_to?: string;
+  ai_enabled?: boolean;
+  search?: string;
+  ordering?: string;
+  page?: number;
+}): Promise<Paginated<Conversation>> {
+  return apiFetch<Paginated<Conversation>>(`/conversations/${toQueryString(params ?? {})}`);
+}
+
+export function createConversation(payload: CreateConversationPayload): Promise<Conversation> {
+  return apiFetch<Conversation>("/conversations/", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateConversation(
+  id: string,
+  payload: Partial<Pick<Conversation, "status" | "ai_enabled" | "tags">>,
+): Promise<Conversation> {
+  return apiFetch<Conversation>(`/conversations/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+// The dedicated assign endpoint, not a generic PATCH on `assigned_to` — it's
+// the one that writes an AuditLog entry and a ConversationAssignment
+// history row server-side.
+export function assignConversation(id: string, userId: string | null): Promise<Conversation> {
+  return apiFetch<Conversation>(`/conversations/${id}/assign/`, {
+    method: "POST",
+    body: JSON.stringify({ user_id: userId }),
+  });
+}
+
+export function listConversationAssignments(
+  id: string,
+): Promise<Paginated<ConversationAssignment>> {
+  return apiFetch<Paginated<ConversationAssignment>>(`/conversations/${id}/assignments/`);
+}
+
+export function listMessages(
+  conversationId: string,
+  params?: { page?: number },
+): Promise<Paginated<Message>> {
+  return apiFetch<Paginated<Message>>(
+    `/messages/${toQueryString({ conversation: conversationId, ordering: "created_at", ...params })}`,
+  );
+}
+
+// The backend only accepts sender_type: "staff" via this endpoint this
+// phase (customer/AI messages arrive via the WhatsApp webhook/AI engine
+// instead) — hardcoded here rather than exposed as a caller param.
+export function sendMessage(
+  conversation: string,
+  content: string,
+  messageType: MessageType = "text",
+): Promise<Message> {
+  return apiFetch<Message>("/messages/", {
+    method: "POST",
+    body: JSON.stringify({ conversation, sender_type: "staff", content, message_type: messageType }),
   });
 }

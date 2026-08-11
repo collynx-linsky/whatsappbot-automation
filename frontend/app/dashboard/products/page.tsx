@@ -139,6 +139,7 @@ export default function ProductsPage() {
       nav={[
         { label: "Overview", href: "/dashboard" },
         { label: "Products & Orders", href: "/dashboard/products" },
+        { label: "Inbox", href: "/dashboard/inbox" },
       ]}
     >
       <div className="space-y-8">

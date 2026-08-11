@@ -84,6 +84,7 @@ export default function DashboardPage() {
       nav={[
         { label: "Overview", href: "/dashboard" },
         { label: "Products & Orders", href: "/dashboard/products" },
+        { label: "Inbox", href: "/dashboard/inbox" },
       ]}
     >
       <div className="space-y-8">
@@ -240,8 +241,8 @@ export default function DashboardPage() {
         )}
 
         <section className="rounded-xl border border-dashed border-zinc-300 bg-white/50 p-5 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-400">
-          The WhatsApp inbox, customers, products, orders, AI assistant, and knowledge base
-          modules land in the next build phases — see docs/ROADMAP.md.
+          The AI assistant settings and knowledge base modules land in the next build phases —
+          see docs/ROADMAP.md.
         </section>
       </div>
     </DashboardShell>

@@ -150,6 +150,7 @@ export interface CreateStaffResponse {
 }
 
 export type LeadStatus = "new" | "contacted" | "qualified" | "proposal" | "converted" | "lost";
+export type CustomerSource = "whatsapp" | "website" | "referral" | "walk_in" | "campaign" | "other";
 
 export interface Customer {
   id: string;
@@ -159,9 +160,11 @@ export interface Customer {
   email: string;
   location: string;
   tags: string[];
-  source: string;
+  source: CustomerSource;
   status: LeadStatus;
   notes: string;
+  marketing_opt_in: boolean;
+  marketing_opt_in_at: string | null;
   last_interaction_at: string | null;
   created_at: string;
   updated_at: string;
@@ -231,4 +234,80 @@ export interface CreateOrderPayload {
   conversation?: string | null;
   notes?: string;
   items: { product: string; quantity: number }[];
+}
+
+// ── Inbox: conversations & messages ─────────────────────────
+export type ConversationStatus = "open" | "pending" | "resolved" | "closed";
+export type ConversationChannel = "whatsapp";
+
+export interface Conversation {
+  id: string;
+  tenant: string;
+  customer: string;
+  customer_name: string;
+  customer_phone: string;
+  channel: ConversationChannel;
+  status: ConversationStatus;
+  assigned_to: string | null;
+  assigned_to_name: string | null;
+  // The AI-handoff toggle — there's no separate field for it, this IS it.
+  ai_enabled: boolean;
+  tags: string[];
+  last_message_preview: string;
+  last_message_at: string | null;
+  // Read-only — no "mark read" endpoint exists server-side, so this can
+  // never be reset from the client. Display only.
+  unread_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateConversationPayload {
+  customer: string;
+  channel?: ConversationChannel;
+  status?: ConversationStatus;
+  assigned_to?: string | null;
+  ai_enabled?: boolean;
+  tags?: string[];
+}
+
+export interface ConversationAssignment {
+  id: string;
+  conversation: string;
+  user: string;
+  user_name: string;
+  assigned_by: string | null;
+  assigned_at: string;
+  unassigned_at: string | null;
+}
+
+export type SenderType = "customer" | "staff" | "ai" | "system" | "campaign";
+export type MessageDirection = "inbound" | "outbound";
+export type MessageType = "text" | "image" | "document" | "audio" | "video" | "location";
+export type MessageStatus = "pending" | "sent" | "delivered" | "read" | "failed";
+
+export interface MessageAttachment {
+  id: string;
+  message: string;
+  file: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  created_at: string;
+}
+
+export interface Message {
+  id: string;
+  tenant: string;
+  conversation: string;
+  sender_type: SenderType;
+  sender_user: string | null;
+  sender_name: string | null;
+  direction: MessageDirection;
+  message_type: MessageType;
+  content: string;
+  status: MessageStatus;
+  external_message_id: string;
+  attachments: MessageAttachment[];
+  created_at: string;
 }
