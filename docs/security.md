@@ -104,6 +104,20 @@
   hardcoded in source, and `.env` is gitignored. `.env.example` documents
   every key with placeholder values.
 
+## Backup & disaster recovery (Priority 9)
+
+Full writeup in `docs/backup-recovery.md`: `scripts/backup-db.ps1`
+(`pg_dump`, gitignored `backups/` output, age-based retention) and
+`scripts/restore-db.ps1` (destructive, gated behind `-Force` + a typed
+database-name confirmation — both gates live-tested this phase without
+touching real data), a disaster-recovery runbook for "database
+corrupted" and "entire host lost" scenarios, and — the one genuinely
+security-relevant point specific to this project — why
+`FIELD_ENCRYPTION_KEY` needs its own, separate, off-box backup: losing
+it independently of the database backup permanently strands every
+already-encrypted WhatsApp token and MFA secret, undecryptable even
+though the database rows restore fine.
+
 ## Database security (Priority 7)
 
 - **Connections**: `POSTGRES_SSLMODE` (new this phase) — `"prefer"` in

@@ -28,6 +28,9 @@ db.sqlite3
 db.sqlite3-journal
 local_settings.py
 
+# ── Backups (scripts/backup-db.ps1) ──────────────────────────
+backups/
+
 # ── Node / Next.js ────────────────────────────────────────────
 node_modules/
 frontend/.next/

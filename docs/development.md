@@ -55,6 +55,8 @@ interactively (not stored anywhere) and creates the `waba_user` role +
 | `test.ps1` | Backend `pytest` + `manage.py check` + frontend `tsc --noEmit` + `next build`. |
 | `lint.ps1` | `ruff check`, `black --check`, `isort --check`, `eslint`. |
 | `format.ps1` | `isort`, `black`, `eslint --fix`. |
+| `backup-db.ps1` | `pg_dump` to `backups/` (gitignored), prunes old backups. See `docs/backup-recovery.md`. |
+| `restore-db.ps1` | **Destructive** — restores from a `backup-db.ps1` dump. Requires `-Force` + typed confirmation. |
 
 All of these were run for real against a live database this session — not
 just written and assumed to work.
