@@ -2,6 +2,7 @@
 
 import pytest
 from django.core import mail
+from rest_framework.test import APIClient
 
 from apps.accounts.models import PasswordResetToken, User
 
@@ -82,6 +83,46 @@ class TestLogin:
         resp = client.get("/api/v1/auth/me/")
         assert resp.status_code == 200
         assert resp.data["email"] == owner_a.email
+
+
+@pytest.mark.django_db
+class TestSessions:
+    def test_list_shows_the_just_issued_session_never_the_raw_token(self, api_client, tenant_a):
+        _, _, owner_a = tenant_a
+        client = auth_client(api_client, owner_a.email, "OwnerSecret1!")
+
+        resp = client.get("/api/v1/auth/sessions/")
+
+        assert resp.status_code == 200
+        assert len(resp.data) >= 1
+        session = resp.data[0]
+        assert set(session) == {"jti", "created_at", "expires_at"}
+
+    def test_revoke_removes_it_from_the_list(self, api_client, tenant_a):
+        _, _, owner_a = tenant_a
+        client = auth_client(api_client, owner_a.email, "OwnerSecret1!")
+        jti = client.get("/api/v1/auth/sessions/").data[0]["jti"]
+
+        resp = client.post(f"/api/v1/auth/sessions/{jti}/revoke/")
+
+        assert resp.status_code == 200, resp.data
+        remaining = client.get("/api/v1/auth/sessions/").data
+        assert jti not in [s["jti"] for s in remaining]
+
+    def test_cannot_revoke_another_users_session(self, api_client, tenant_a, tenant_b):
+        _, _, owner_a = tenant_a
+        _, _, owner_b = tenant_b
+        client_a = auth_client(api_client, owner_a.email, "OwnerSecret1!")
+        jti_a = client_a.get("/api/v1/auth/sessions/").data[0]["jti"]
+
+        client_b = auth_client(APIClient(), owner_b.email, "OwnerSecret1!")
+        resp = client_b.post(f"/api/v1/auth/sessions/{jti_a}/revoke/")
+
+        assert resp.status_code == 404
+
+    def test_sessions_requires_authentication(self, api_client):
+        resp = api_client.get("/api/v1/auth/sessions/")
+        assert resp.status_code == 401
 
 
 @pytest.mark.django_db

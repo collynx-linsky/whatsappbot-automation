@@ -47,6 +47,8 @@ real tokens by itself. See `docs/mfa.md` for the full two-step flow.
 | POST | `refresh/` | none | `{refresh}` → `{access}` (simplejwt default view). |
 | POST | `logout/` | required | `{refresh}` → blacklists it. |
 | GET | `me/` | required | Current user's own profile. |
+| GET | `sessions/` | required | The caller's own active refresh tokens — `[{jti, created_at, expires_at}]`, never the raw token. |
+| POST | `sessions/<jti>/revoke/` | required | Blacklists one of the caller's own refresh tokens by `jti`. `404` if it isn't the caller's own. |
 | POST | `forgot-password/` | none | `{email}` → always 200; emails a reset link (console backend in dev). |
 | POST | `reset-password/` | none | `{token, new_password}`. |
 

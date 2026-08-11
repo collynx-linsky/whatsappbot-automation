@@ -28,10 +28,17 @@
   never returns a real access/refresh pair by itself anymore.
 - Login/device visibility: `User.last_login_ip` and
   `last_login_user_agent` are recorded on every successful MFA challenge
-  (`apps.accounts.views.MFAVerifyView`) — enough to notice "this login
-  came from an unexpected IP/browser" without building a full session-
-  management UI this phase. No concurrent-session limiting or device
-  revocation list yet (flagged below).
+  (`apps.accounts.views.MFAVerifyView`). `GET /api/v1/auth/sessions/`
+  lists the caller's own active refresh tokens (`jti`/`created_at`/
+  `expires_at`, never the raw token — reuses `rest_framework_simplejwt
+  .token_blacklist`'s existing `OutstandingToken` bookkeeping rather than
+  a parallel session model) and `POST /api/v1/auth/sessions/{jti}/revoke/`
+  blacklists one. **Known limitation, not hidden**: revoking a refresh
+  token stops it minting *new* access tokens, but a stateless access
+  token already issued from it stays valid until its own (60 min
+  default) expiry — there's no server-side session store to immediately
+  kill it early. Fine for "I think someone else has my refresh token,"
+  not instant enough for "kill this session right now."
 
 ## Authorization
 

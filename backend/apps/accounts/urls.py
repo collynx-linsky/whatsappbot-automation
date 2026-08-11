@@ -17,4 +17,6 @@ urlpatterns = [
     path("mfa/setup/", views.MFASetupView.as_view(), name="mfa-setup"),
     path("mfa/setup/confirm/", views.MFASetupConfirmView.as_view(), name="mfa-setup-confirm"),
     path("mfa/verify/", views.MFAVerifyView.as_view(), name="mfa-verify"),
+    path("sessions/", views.SessionListView.as_view(), name="session-list"),
+    path("sessions/<str:jti>/revoke/", views.SessionRevokeView.as_view(), name="session-revoke"),
 ]

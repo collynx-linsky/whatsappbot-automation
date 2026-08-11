@@ -233,6 +233,68 @@ class MeView(APIView):
         return Response(UserSerializer(request.user).data)
 
 
+class SessionListView(APIView):
+    """
+    GET /api/v1/auth/sessions/ — the caller's own active refresh tokens
+    (device/session visibility — spec's "secure session management").
+    Reuses `rest_framework_simplejwt.token_blacklist`'s own
+    `OutstandingToken` bookkeeping (already recording every refresh token
+    issued, since `token_blacklist` has been installed since the
+    Foundation phase) rather than building a parallel session model.
+    Never exposes the raw token string — only `jti` (used to revoke a
+    specific one via `SessionRevokeView`), `created_at`, `expires_at`.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+
+        tokens = (
+            OutstandingToken.objects.filter(user=request.user, expires_at__gt=timezone.now())
+            .exclude(blacklistedtoken__isnull=False)
+            .order_by("-created_at")
+        )
+        return Response(
+            [
+                {"jti": t.jti, "created_at": t.created_at, "expires_at": t.expires_at}
+                for t in tokens
+            ]
+        )
+
+
+class SessionRevokeView(APIView):
+    """
+    POST /api/v1/auth/sessions/{jti}/revoke/ — blacklists one of the
+    caller's own outstanding refresh tokens by `jti` (from
+    `SessionListView`). Immediately stops that refresh token from being
+    used to mint new access tokens; a stateless access token already
+    issued from it stays valid until its own (short, 60 min default)
+    expiry — this is the one real limitation of JWT-based session
+    revocation vs. a server-side session store, flagged honestly rather
+    than implied away.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, jti):
+        from rest_framework_simplejwt.token_blacklist.models import (
+            BlacklistedToken,
+            OutstandingToken,
+        )
+
+        token = get_object_or_404(OutstandingToken, user=request.user, jti=jti)
+        BlacklistedToken.objects.get_or_create(token=token)
+        AuditLog.log(
+            action="SESSION_REVOKED",
+            user=request.user,
+            tenant=request.user.tenant,
+            metadata={"jti": jti},
+            ip_address=request.META.get("REMOTE_ADDR"),
+        )
+        return Response({"detail": "Session revoked."})
+
+
 class ForgotPasswordView(APIView):
     """
     POST /api/v1/auth/forgot-password/ {"email": "..."}
