@@ -1,3 +1,5 @@
+import { useId } from "react";
+
 export function Field({
   label,
   value,
@@ -11,10 +13,19 @@ export function Field({
   type?: string;
   required?: boolean;
 }) {
+  // A generated id, not one derived from `label` text — avoids collisions
+  // when the same label (e.g. "Name") appears more than once on a page,
+  // and is what actually associates the <label> with its input for
+  // screen readers/getByLabelText, which the two elements being mere
+  // siblings never did on its own.
+  const id = useId();
   return (
     <div>
-      <label className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">{label}</label>
+      <label htmlFor={id} className="block text-sm font-medium text-zinc-700 dark:text-zinc-300">
+        {label}
+      </label>
       <input
+        id={id}
         type={type}
         required={required}
         value={value}

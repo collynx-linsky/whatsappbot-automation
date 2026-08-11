@@ -15,9 +15,13 @@ Pop-Location
 Write-Host "==> Frontend: typecheck" -ForegroundColor Cyan
 Push-Location "$root\frontend"
 npx tsc --noEmit
+Write-Host "==> Frontend: component/unit tests (Vitest)" -ForegroundColor Cyan
+npm run test
 Write-Host "==> Frontend: build" -ForegroundColor Cyan
 npm run build
 Pop-Location
 
 Write-Host ""
 Write-Host "All checks passed." -ForegroundColor Green
+Write-Host "(Playwright e2e tests are not run here — they need the backend" -ForegroundColor DarkGray
+Write-Host " and frontend dev servers both running live. See docs/testing.md." -ForegroundColor DarkGray
