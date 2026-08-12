@@ -53,23 +53,27 @@ Playwright starts (or reuses) the frontend dev server itself via its
 Django, matching this project's existing hybrid dev-setup convention (see
 `docs/development.md`).
 
-## The E2E test account
+## The E2E test accounts
 
-Playwright needs a **real, already-MFA-enrolled** account to log in as —
+Playwright needs **real, already-MFA-enrolled** accounts to log in as —
 this platform has mandatory MFA for every role, no exceptions (see
 `docs/mfa.md`), so there's no way to skip that step and still be testing
 the real login flow.
 
-`manage.py provision_e2e_user` creates (or resets) one fixed account for
-exactly this purpose:
+`manage.py provision_e2e_user` creates (or resets) two fixed accounts:
 
-- A dedicated tenant/business ("E2E Test Co"), separate from the
-  `seed_dev_data` sample businesses, so e2e runs never touch or depend on
-  seeded data that might change.
-- A Business Owner user with MFA already enrolled against a **known** TOTP
-  secret.
+- **A Business Owner** ("E2E Test Co", a dedicated tenant/business
+  separate from the `seed_dev_data` sample businesses, so e2e runs never
+  touch or depend on seeded data that might change) — this is who the
+  `authenticated` Playwright project and `global-setup.ts` log in as.
+- **A Super Admin** (`e2e-admin@wabaai.local`, deliberately separate from
+  the real `SUPERADMIN_EMAIL` account `createsuperadmin` manages) — exists
+  so authenticated coverage (Playwright specs, or ad-hoc visual-QA
+  screenshots) can reach `/admin`, which the business-owner account
+  correctly cannot.
 
-The email/password/secret are fixed, non-production, dev-only values —
+Both have MFA already enrolled against their own **known** TOTP secret.
+The emails/passwords/secrets are fixed, non-production, dev-only values —
 the same "documented dev-only credential" pattern this project already
 uses for `SUPERADMIN_EMAIL`/`SUPERADMIN_PASSWORD` (see the README's
 "Default development credentials"). They live in exactly two places, which
@@ -128,3 +132,31 @@ every non-204 response has a JSON body.
   screenshot) — Playwright's `screenshot: "only-on-failure"` setting is
   for debugging a failure, not for catching a CSS regression that doesn't
   also break a functional assertion.
+
+## Manual visual QA still finds real bugs neither automated layer catches
+
+During the "premium enterprise transformation" pass (see
+`docs/frontend-design-system.md`), a manual round of real screenshots —
+every page, light and dark, desktop and mobile, taken with Playwright but
+*read*, not just asserted against — caught three real bugs that the full
+automated suite (Vitest + Playwright + tsc + eslint, all green) missed
+entirely:
+
+1. A pluralization bug (`"replyies"` instead of `"replies"`) — no test
+   asserted the exact hint text, so a passing suite said nothing about it.
+2. Stale placeholder copy on the dashboard ("the AI settings and
+   knowledge base modules land in the next build phases") left over from
+   before those modules existed — a test would only catch this if someone
+   had first noticed it was wrong and wrote an assertion against it.
+3. A real mobile usability bug: the Inbox's two-pane layout didn't adapt
+   below `lg`, squeezing the message thread into an unusable ~70px sliver
+   on a 390px phone. No page-level horizontal overflow occurred (confirmed
+   via `document.body.scrollWidth`), so nothing an automated layout-overflow
+   check would catch either — the container's own `overflow-hidden` just
+   silently clipped the content instead.
+
+None of these are gaps in the test suite's design — they're the category
+of bug that fundamentally requires a human (or a careful visual pass) to
+notice something is *wrong*, not just that nothing *crashed*. Automated
+tests prove the app doesn't break; they don't prove it reads correctly or
+looks right. Both are needed.

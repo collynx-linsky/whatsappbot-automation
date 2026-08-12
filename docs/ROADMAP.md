@@ -1203,6 +1203,120 @@ attention, and a real GitHub Actions failure pasted directly from CI.
   clean `tsc`/`eslint`/`next build`, and the exact CI failure the user
   pasted reproduced and fixed locally, not just guessed at.
 
+## Done (this session — "Premium enterprise frontend transformation")
+
+User's brief (after a first draft that described entities this app
+doesn't have — students, HR, library, transport, tenant switching —
+which was flagged and corrected before starting) was explicit: transform
+the frontend into something that reads as a serious commercial SaaS
+product, built strictly on this app's real modules, with hard guardrails
+against fabricating functionality, weakening security, or introducing a
+tenant switcher (this platform's single-tenant isolation is a deliberate,
+audited feature, not a gap). Full detail in the new
+`docs/frontend-design-system.md`; this is the roadmap-level summary.
+
+**Foundation**
+- New semantic design-token layer in `app/globals.css` (`--color-primary`,
+  `-success/-warning/-danger/-info`, `-page/-surface/-surface-elevated`,
+  `-border/-divider`, `-ink/-ink-secondary/-ink-muted/-ink-disabled`,
+  `-chart-1..5`, plus a shadow scale) — explicit light **and** dark value
+  for every role, layered over (not replacing) the existing zinc/emerald
+  utility classes.
+- **A real, validator-confirmed accessibility bug fixed**: the message-
+  sender-type chart reused one fixed hex per category across both color
+  modes. Running it through the dataviz skill's actual palette validator
+  (not eyeballing it) found "System" (zinc-400) failed the chroma floor —
+  it read as gray, not a color — and "Campaign" (amber-500) failed the
+  dark-mode lightness band. Replaced with a 5-hue set that validates as
+  one set in both modes (`--chart-1..5`), confirmed by re-running the
+  validator, not assumed.
+- `lib/navigation.ts`: one canonical `DASHBOARD_NAV` (with icons attached
+  per item) replacing an identical `{label, href}[]` array that had been
+  copy-pasted into 9 separate page files, plus the separate href-keyed
+  icon lookup table `DashboardShell` used to maintain independently.
+- `lib/errors.ts`: `getErrorMessage(err, fallback)` replacing the
+  `err instanceof ApiError ? err.message : "..."` pattern repeated 49
+  times across every page's catch blocks — same behavior, one place to
+  get it right.
+
+**App shell**
+- `DashboardShell` rewired onto the new nav/token system, plus a real
+  **Ctrl/Cmd+K command palette** (`CommandPalette.tsx`) — navigates to
+  real routes only (sourced from the same `DASHBOARD_NAV` the sidebar
+  uses) plus Log out; deliberately does **not** fake a search across
+  records, since no backend search endpoint exists for it to call.
+  Keyboard-navigable, closes on Escape/backdrop, returns focus on close.
+
+**New shared components**: `Button` (primary/secondary/ghost/danger
+hierarchy), `EmptyState` (title+description+action, wired into the
+WhatsApp page's connected-numbers panel), `Skeleton` and `PageLoading`
+(the latter replacing 11 identical copies of plain "Loading…" text — the
+full-page auth-gate state every dashboard/admin page shows before
+`useRequireAuth()` resolves).
+
+**Campaigns refactor**: `app/dashboard/campaigns/page.tsx` was 862 lines
+managing three entities (templates/segments/campaigns) in one file.
+Refactored into 6 focused presentational components
+(`components/campaigns/{Templates,Segments,Campaigns}Section.tsx` +
+their matching `*Form.tsx`) plus a `shared.ts` for common style constants
+and lookups — the page itself is now ~340 lines and is purely the
+composition/state/data-fetching layer, same route, same functionality.
+Verified pixel-identical via screenshot comparison before/after.
+
+**New backend-side testing infrastructure**: `provision_e2e_user` now
+provisions **two** fixed accounts (a business owner, and new this pass, a
+dedicated super admin — `e2e-admin@wabaai.local`, separate from the real
+`SUPERADMIN_EMAIL` account) so authenticated e2e/visual-QA coverage can
+reach `/admin`, which the business-owner account correctly cannot.
+
+**New tests**: `DashboardShell.test.tsx` (nav rendering, active-route
+highlighting, the `initials()` helper across one-word/multi-word/empty
+names, mobile drawer open/close-on-nav/close-on-backdrop, logout) — this
+component had zero dedicated test coverage before, despite being the most
+complex shared component in the app.
+
+**A real, live-verified bug fixed along the way**: `Inbox`'s two-pane
+layout (fixed `w-80` list + `flex-1` thread, `overflow-hidden` container)
+never adapted below `lg` — on a 390px phone the message thread was
+squeezed to ~70px and clipped, not readable. No page-level horizontal
+overflow occurred (confirmed via `document.body.scrollWidth` — the
+container's own `overflow-hidden` silently clipped instead), so this
+wasn't the same class of bug as the earlier table-overflow fix. Fixed
+with the standard mobile master-detail pattern: below `lg`, show exactly
+one pane at a time (list, or thread with a Back control) instead of both
+fighting for ~390px combined. Verified against a real seeded conversation
+in both directions (list → thread → back), and confirmed desktop is
+completely unaffected.
+
+**Manual visual QA — screenshots actually read, not just asserted
+against** — caught two more real bugs neither Vitest nor Playwright's
+existing assertions were checking for: a pluralization bug
+("`replyies`" instead of "`replies`" in the Analytics avg-response-time
+stat tile), and stale placeholder copy on the dashboard overview page
+("the AI settings and knowledge base modules land in the next build
+phases") left over from a session before those modules existed. Both
+fixed; full writeup of why this category of bug needs a human pass, not
+just automated coverage, is in the new "Manual visual QA" section of
+`docs/testing.md`.
+
+**Validation, run for real, not just described**: `tsc --noEmit`,
+`eslint`, `next build`, 35/35 Vitest (24 previous + 11 new
+`DashboardShell` tests), 18/18 Playwright (including a real e2e-text-copy
+fix caught by the suite itself — the WhatsApp empty-state assertion still
+expected the old literal string after the `EmptyState` copy change), and
+246/246 backend `pytest` (untouched this pass, confirmed still green) —
+run repeatedly through the session, not once at the end.
+
+**Explicitly not built, stated honestly** (per the brief's own "do not
+fabricate" guardrails): a notification center, a global-search backend,
+and an audit-log viewer UI — none have a real backend endpoint to call
+yet, and building frontend for them would mean either fabricating data or
+building real backend features that weren't asked for as part of this
+pass. `Button` and `EmptyState` are built and demonstrated but not
+retrofit onto every existing page — see `docs/frontend-design-system.md`'s
+"Known gaps" section for the full, honest list of what this pass
+deliberately left alone and why.
+
 ## Not built yet — placeholder app directories only
 
 `backend/apps/{notifications,audit}/` exist as empty Python packages
