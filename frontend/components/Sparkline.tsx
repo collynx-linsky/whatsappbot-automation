@@ -15,7 +15,7 @@ export function Sparkline({
   const total = data.reduce((sum, d) => sum + d.count, 0);
 
   if (data.length === 0) {
-    return <p className="text-sm text-zinc-500 dark:text-zinc-400">No signups in this period.</p>;
+    return <p className="text-sm text-ink-muted">No signups in this period.</p>;
   }
 
   const points = data.map((d, i) => {
@@ -35,10 +35,16 @@ export function Sparkline({
         role="img"
         aria-label={`${total} new tenant${total === 1 ? "" : "s"} over the last ${data.length} days`}
       >
-        <polygon points={area} fill="#059669" fillOpacity={0.12} />
-        <polyline points={line} fill="none" stroke="#059669" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+        <polygon points={area} fill="var(--color-primary)" fillOpacity={0.12} />
+        <polyline
+          points={line}
+          fill="none"
+          stroke="var(--color-primary)"
+          strokeWidth={2}
+          vectorEffect="non-scaling-stroke"
+        />
       </svg>
-      <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+      <p className="mt-1 text-xs text-ink-muted">
         {total} new tenant{total === 1 ? "" : "s"} · {data[0]?.date} – {data[data.length - 1]?.date}
       </p>
     </div>

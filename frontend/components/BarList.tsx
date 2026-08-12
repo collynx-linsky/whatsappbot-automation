@@ -16,7 +16,7 @@ export interface BarListItem {
   color?: string;
 }
 
-const DEFAULT_COLOR = "#059669"; // emerald-600 — matches the app's brand accent
+const DEFAULT_COLOR = "var(--color-primary)"; // resolves per light/dark automatically
 
 export function BarList({
   items,

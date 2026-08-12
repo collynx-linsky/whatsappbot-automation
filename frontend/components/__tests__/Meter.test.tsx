@@ -4,21 +4,30 @@ import { describe, expect, it } from "vitest";
 import { Meter } from "@/components/Meter";
 
 describe("Meter", () => {
+  // Color values are asserted as the semantic token reference
+  // (var(--color-success) etc.), not a resolved hex — the actual color
+  // comes from globals.css, which isn't loaded in this jsdom environment.
+  // Asserting the token name is also the more meaningful check: it proves
+  // Meter reaches for the *right role* (success/warning/danger), which
+  // holds even if the token's underlying hex is retuned later.
   it("prints used/limit and fills proportionally under the warning threshold", () => {
     render(<Meter label="Team members" used={2} limit={5} unlimited={false} />);
     expect(screen.getByText("Team members")).toBeInTheDocument();
     expect(screen.getByText("2 / 5")).toBeInTheDocument();
-    expect(screen.getByTestId("meter-fill")).toHaveStyle({ width: "40%", backgroundColor: "#059669" });
+    expect(screen.getByTestId("meter-fill")).toHaveStyle({
+      width: "40%",
+      backgroundColor: "var(--color-success)",
+    });
   });
 
   it("turns amber between the warning and critical thresholds", () => {
     render(<Meter label="Customers" used={75} limit={100} unlimited={false} />);
-    expect(screen.getByTestId("meter-fill")).toHaveStyle({ backgroundColor: "#d97706" });
+    expect(screen.getByTestId("meter-fill")).toHaveStyle({ backgroundColor: "var(--color-warning)" });
   });
 
   it("turns red at or above the critical threshold", () => {
     render(<Meter label="AI messages" used={95} limit={100} unlimited={false} />);
-    expect(screen.getByTestId("meter-fill")).toHaveStyle({ backgroundColor: "#dc2626" });
+    expect(screen.getByTestId("meter-fill")).toHaveStyle({ backgroundColor: "var(--color-danger)" });
   });
 
   it("shows an Unlimited badge and no fill bar when unlimited", () => {

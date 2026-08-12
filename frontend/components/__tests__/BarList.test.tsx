@@ -63,7 +63,9 @@ describe("BarList", () => {
     );
     const fills = container.querySelectorAll("li span > span");
     expect(fills[0]).toHaveStyle({ backgroundColor: "rgb(59, 130, 246)" });
-    expect(fills[1]).toHaveStyle({ backgroundColor: "#059669" });
+    // The default resolves via the --color-primary token (not a literal
+    // hex here in jsdom — see globals.css), so assert the reference itself.
+    expect(fills[1]).toHaveStyle({ backgroundColor: "var(--color-primary)" });
   });
 });
 

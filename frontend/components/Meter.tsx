@@ -1,9 +1,10 @@
 // A used-vs-capacity track — distinct from BarList's categorical
 // comparison: this is one quantity against its own ceiling, so color
 // encodes proximity to the limit (good/warning/critical), not identity.
-// Matches the dataviz skill's reserved status palette: green under 70%,
-// amber 70–90%, red at/above 90% — and a status color is never the only
-// signal, the used/limit numbers are always printed too.
+// Uses the semantic status tokens (globals.css) rather than fixed hex —
+// each has its own validated light/dark value, unlike the flat hex this
+// used before. A status color is never the only signal: the used/limit
+// numbers are always printed too.
 export function Meter({
   label,
   used,
@@ -17,18 +18,22 @@ export function Meter({
 }) {
   const ratio = unlimited || limit === 0 ? 0 : Math.min(1, used / limit);
   const color =
-    ratio >= 0.9 ? "#dc2626" /* red-600 */ : ratio >= 0.7 ? "#d97706" /* amber-600 */ : "#059669"; /* emerald-600 */
+    ratio >= 0.9
+      ? "var(--color-danger)"
+      : ratio >= 0.7
+        ? "var(--color-warning)"
+        : "var(--color-success)";
 
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between text-sm">
-        <span className="font-medium text-zinc-700 dark:text-zinc-300">{label}</span>
-        <span className="tabular-nums text-zinc-500 dark:text-zinc-400">
+        <span className="font-medium text-ink-secondary">{label}</span>
+        <span className="tabular-nums text-ink-muted">
           {used} {unlimited ? "" : `/ ${limit}`}
-          {unlimited && <span className="ml-1 text-emerald-600 dark:text-emerald-400">Unlimited</span>}
+          {unlimited && <span className="ml-1 text-primary">Unlimited</span>}
         </span>
       </div>
-      <div className="h-2 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+      <div className="h-2 overflow-hidden rounded-full bg-page">
         {!unlimited && (
           <div
             data-testid="meter-fill"
