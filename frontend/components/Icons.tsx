@@ -2,7 +2,10 @@
 // dashboard app's sidebar — no icon library dependency, matching this
 // codebase's existing no-extra-dependency convention. 24x24, stroke-based,
 // currentColor so each usage controls its own color via className.
+import type { ComponentType } from "react";
+
 type IconProps = { className?: string };
+export type IconComponent = ComponentType<IconProps>;
 const base = "h-6 w-6";
 
 export function IconSpark({ className = base }: IconProps) {

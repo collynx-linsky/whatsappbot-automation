@@ -1,8 +1,82 @@
 @import "tailwindcss";
 
+/*
+ * WABA AI — Design tokens
+ *
+ * A semantic layer over Tailwind's raw zinc/emerald scale, not a
+ * replacement for it — existing pages keep their zinc- and emerald-
+ * utilities (already consistent app-wide, confirmed by audit), and new
+ * shared components (Button, EmptyState, CommandPalette, Skeleton, the
+ * DashboardShell) are built against these tokens instead. Every role has
+ * an explicit light AND dark value — never one fixed hex assumed to work
+ * in both (see docs/frontend-design-system.md for the audit that found
+ * exactly this bug in the analytics chart colors, fixed alongside this).
+ *
+ * Light values live in :root; dark values override under
+ * prefers-color-scheme (this app has no manual theme toggle — it follows
+ * the OS setting only). `@theme inline` re-exposes each role as a
+ * `--color-*` token so Tailwind generates real utilities from it
+ * (bg-primary, text-muted, border-default, etc.) alongside the existing
+ * raw-scale utilities.
+ */
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Brand / action */
+  --color-primary: #059669; /* emerald-600 */
+  --color-primary-hover: #047857; /* emerald-700 */
+  --color-primary-active: #065f46; /* emerald-800 */
+  --color-secondary: #52525b; /* zinc-600 — neutral supporting actions */
+  --color-secondary-hover: #3f3f46; /* zinc-700 */
+
+  /* Status */
+  --color-success: #059669; /* emerald-600 */
+  --color-success-surface: #ecfdf5; /* emerald-50 */
+  --color-warning: #d97706; /* amber-600 — meets 3:1 on white; amber-500 does not */
+  --color-warning-surface: #fffbeb; /* amber-50 */
+  --color-danger: #dc2626; /* red-600 */
+  --color-danger-surface: #fef2f2; /* red-50 */
+  --color-info: #2563eb; /* blue-600 */
+  --color-info-surface: #eff6ff; /* blue-50 */
+
+  /* Surfaces */
+  --color-page: #fafafa; /* zinc-50 — app shell canvas */
+  --color-surface: #ffffff; /* cards, panels */
+  --color-surface-elevated: #ffffff; /* dialogs, dropdowns — same fill, relies on shadow-elevated */
+
+  /* Borders */
+  --color-border: #e4e4e7; /* zinc-200 */
+  --color-divider: #f4f4f5; /* zinc-100 — hairline, lighter than border */
+
+  /* Text */
+  --color-ink: #18181b; /* zinc-900 */
+  --color-ink-secondary: #3f3f46; /* zinc-700 — labels, sub-headings */
+  --color-ink-muted: #71717a; /* zinc-500 — captions, metadata */
+  --color-ink-disabled: #a1a1aa; /* zinc-400 */
+
+  /* Elevation */
+  --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.04);
+  --shadow-elevated: 0 12px 32px -8px rgb(0 0 0 / 0.18), 0 2px 8px -2px rgb(0 0 0 / 0.08);
+
+  /* Categorical chart slots — fixed order, never cycled or reassigned per
+     chart (color must identify the same category everywhere it appears).
+     Validated as one set (not picked by eye) via the dataviz skill's
+     validator: lightness band, chroma floor, CVD adjacent-pair separation,
+     and contrast vs. surface all pass in BOTH modes — see
+     docs/frontend-design-system.md. This specific 5-hex set happens to
+     pass unchanged against both the light (#fcfcfb) and dark (#18181b)
+     surfaces; that's a validated result for this exact set, not a
+     shortcut — a future added slot needs its own light/dark check, not an
+     assumption that reuse is free. Replaces the previous message-sender
+     palette, which used zinc-400 for "System" (failed the chroma floor —
+     read as gray, not a color) and amber-500 (failed the dark-mode
+     lightness band). */
+  --chart-1: #3b82f6; /* blue */
+  --chart-2: #059669; /* emerald — brand accent, "the primary actor" slot */
+  --chart-3: #8b5cf6; /* violet */
+  --chart-4: #0891b2; /* cyan */
+  --chart-5: #d97706; /* amber */
 }
 
 @theme inline {
@@ -10,12 +84,72 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  --color-primary: var(--color-primary);
+  --color-primary-hover: var(--color-primary-hover);
+  --color-primary-active: var(--color-primary-active);
+  --color-secondary: var(--color-secondary);
+  --color-secondary-hover: var(--color-secondary-hover);
+
+  --color-success: var(--color-success);
+  --color-success-surface: var(--color-success-surface);
+  --color-warning: var(--color-warning);
+  --color-warning-surface: var(--color-warning-surface);
+  --color-danger: var(--color-danger);
+  --color-danger-surface: var(--color-danger-surface);
+  --color-info: var(--color-info);
+  --color-info-surface: var(--color-info-surface);
+
+  --color-page: var(--color-page);
+  --color-surface: var(--color-surface);
+  --color-surface-elevated: var(--color-surface-elevated);
+
+  --color-border: var(--color-border);
+  --color-divider: var(--color-divider);
+
+  --color-ink: var(--color-ink);
+  --color-ink-secondary: var(--color-ink-secondary);
+  --color-ink-muted: var(--color-ink-muted);
+  --color-ink-disabled: var(--color-ink-disabled);
+
+  --shadow-card: var(--shadow-card);
+  --shadow-elevated: var(--shadow-elevated);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
     --foreground: #ededed;
+
+    --color-primary: #10b981; /* emerald-500 — one step lighter, holds contrast on dark surfaces */
+    --color-primary-hover: #34d399; /* emerald-400 */
+    --color-primary-active: #6ee7b7; /* emerald-300 */
+    --color-secondary: #a1a1aa; /* zinc-400 */
+    --color-secondary-hover: #d4d4d8; /* zinc-300 */
+
+    --color-success: #10b981;
+    --color-success-surface: rgb(6 78 59 / 0.4); /* emerald-950/40 */
+    --color-warning: #f59e0b; /* amber-500 — amber-600 reads muddy on dark */
+    --color-warning-surface: rgb(69 26 3 / 0.4); /* amber-950/40 */
+    --color-danger: #f87171; /* red-400 — red-600 fails contrast on dark surfaces */
+    --color-danger-surface: rgb(69 10 10 / 0.4); /* red-950/40 */
+    --color-info: #60a5fa; /* blue-400 */
+    --color-info-surface: rgb(23 37 84 / 0.4); /* blue-950/40 */
+
+    --color-page: #09090b; /* zinc-950 */
+    --color-surface: #18181b; /* zinc-900 */
+    --color-surface-elevated: #27272a; /* zinc-800 — one step up, so dialogs read as "above" the page */
+
+    --color-border: #27272a; /* zinc-800 */
+    --color-divider: #27272a;
+
+    --color-ink: #fafafa; /* zinc-50 */
+    --color-ink-secondary: #d4d4d8; /* zinc-300 */
+    --color-ink-muted: #a1a1aa; /* zinc-400 */
+    --color-ink-disabled: #52525b; /* zinc-600 */
+
+    --shadow-card: 0 1px 2px 0 rgb(0 0 0 / 0.2);
+    --shadow-elevated: 0 12px 32px -8px rgb(0 0 0 / 0.6), 0 2px 8px -2px rgb(0 0 0 / 0.4);
   }
 }
 
@@ -23,4 +157,17 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Respect the OS-level reduced-motion preference app-wide — the shared
+   components (Button, dialogs, dropdowns, drawers) use `transition-*`
+   utilities; this neutralizes them without needing a `motion-reduce:`
+   variant on every single one. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
