@@ -4,8 +4,11 @@ import { useEffect, useState } from "react";
 
 import { Alert } from "@/components/Alert";
 import { DashboardShell } from "@/components/DashboardShell";
+import { PageLoading } from "@/components/PageLoading";
+import { DASHBOARD_NAV } from "@/lib/navigation";
 import { Field } from "@/components/Field";
-import { ApiError, getAISettings, testAI, updateAISettings } from "@/lib/api";
+import { getAISettings, testAI, updateAISettings } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
 import { useRequireAuth } from "@/lib/useAuth";
 import type { AISettings, AITestResult } from "@/types";
 
@@ -68,7 +71,7 @@ export default function AISettingsPage() {
     if (!ready || !canManage) return;
     getAISettings()
       .then((res) => setForm(toForm(res)))
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Failed to load AI settings."));
+      .catch((err) => setError(getErrorMessage(err, "Failed to load AI settings.")));
   }, [ready, canManage]);
 
   async function handleSave(e: React.FormEvent) {
@@ -100,7 +103,7 @@ export default function AISettingsPage() {
       setForm(toForm(updated));
       setSuccess("AI settings saved.");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to save AI settings.");
+      setError(getErrorMessage(err, "Failed to save AI settings."));
     } finally {
       setSaving(false);
     }
@@ -115,31 +118,21 @@ export default function AISettingsPage() {
       const res = await testAI(testMessage);
       setTestResult(res);
     } catch (err) {
-      setTestError(err instanceof ApiError ? err.message : "Failed to test the assistant.");
+      setTestError(getErrorMessage(err, "Failed to test the assistant."));
     } finally {
       setTesting(false);
     }
   }
 
   if (!ready || !user) {
-    return <div className="flex flex-1 items-center justify-center text-zinc-500">Loading…</div>;
+    return <PageLoading />;
   }
 
   return (
     <DashboardShell
       user={user}
       title="AI Assistant"
-      nav={[
-        { label: "Overview", href: "/dashboard" },
-        { label: "Products & Orders", href: "/dashboard/products" },
-        { label: "Inbox", href: "/dashboard/inbox" },
-        { label: "AI Assistant", href: "/dashboard/ai" },
-        { label: "Knowledge Base", href: "/dashboard/knowledge" },
-        { label: "Campaigns", href: "/dashboard/campaigns" },
-        { label: "WhatsApp", href: "/dashboard/whatsapp" },
-        { label: "Billing", href: "/dashboard/billing" },
-        { label: "Analytics", href: "/dashboard/analytics" },
-      ]}
+      nav={DASHBOARD_NAV}
     >
       {!canManage ? (
         <p className="rounded-xl border border-dashed border-zinc-300 bg-white/50 p-5 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-400">

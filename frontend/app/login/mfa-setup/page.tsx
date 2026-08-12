@@ -7,7 +7,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { Alert } from "@/components/Alert";
 import { Field } from "@/components/Field";
 import * as api from "@/lib/api";
-import { ApiError } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
 import {
   clearPendingToken,
   dashboardPathForRole,
@@ -49,7 +49,7 @@ export default function MfaSetupPage() {
         setStep("scan");
       })
       .catch((err) => {
-        setError(err instanceof ApiError ? err.message : "Unable to reach the server.");
+        setError(getErrorMessage(err, "Unable to reach the server."));
         setStep("error");
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -74,7 +74,7 @@ export default function MfaSetupPage() {
       setTokens(data.access, data.refresh);
       setStep("backup-codes");
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Unable to reach the server.");
+      setError(getErrorMessage(err, "Unable to reach the server."));
     } finally {
       setSubmitting(false);
     }
@@ -87,7 +87,7 @@ export default function MfaSetupPage() {
       clearPendingToken();
       router.push(dashboardPathForRole(user.role));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Unable to reach the server.");
+      setError(getErrorMessage(err, "Unable to reach the server."));
     }
   }
 

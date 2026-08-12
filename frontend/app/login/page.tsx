@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { Alert } from "@/components/Alert";
-import { ApiError } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
 import { setPendingToken } from "@/lib/auth";
 import * as api from "@/lib/api";
 
@@ -32,7 +32,7 @@ export default function LoginPage() {
         router.push("/login/mfa-verify");
       }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Unable to reach the server.");
+      setError(getErrorMessage(err, "Unable to reach the server."));
     } finally {
       setLoading(false);
     }

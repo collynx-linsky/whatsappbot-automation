@@ -5,8 +5,11 @@ import { useEffect, useState } from "react";
 import { Alert } from "@/components/Alert";
 import { BarList, BarListLegend, type BarListItem } from "@/components/BarList";
 import { DashboardShell } from "@/components/DashboardShell";
+import { PageLoading } from "@/components/PageLoading";
+import { DASHBOARD_NAV } from "@/lib/navigation";
 import { StatTile } from "@/components/StatTile";
-import { ApiError, getAnalyticsDashboard } from "@/lib/api";
+import { getAnalyticsDashboard } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
 import { useRequireAuth } from "@/lib/useAuth";
 import type { BusinessDashboard } from "@/types";
 
@@ -46,12 +49,18 @@ const SENDER_LABEL: Record<string, string> = {
   system: "System",
   campaign: "Campaign",
 };
+// var(--chart-N) — the validated categorical slots from globals.css, in
+// their tested order (re-run scripts/validate_palette.js from the dataviz
+// skill before reordering or adding a slot). Was flat hex before,
+// including zinc-400 for "system" — failed the chroma floor (reads gray,
+// not a color) — and amber-500, which failed the dark-mode lightness
+// band. See docs/frontend-design-system.md.
 const SENDER_COLOR: Record<string, string> = {
-  customer: "#3b82f6", // blue-500
-  staff: "#059669", // emerald-600 — brand accent, matches "staff" bubbles in the inbox
-  ai: "#8b5cf6", // violet-500
-  system: "#a1a1aa", // zinc-400
-  campaign: "#f59e0b", // amber-500
+  customer: "var(--chart-1)", // blue
+  staff: "var(--chart-2)", // emerald — brand accent, matches "staff" bubbles in the inbox
+  ai: "var(--chart-3)", // violet
+  system: "var(--chart-4)", // cyan — was zinc-400, which failed the chroma-floor check
+  campaign: "var(--chart-5)", // amber-600 — was amber-500, which failed the dark lightness band
 };
 
 type Preset = "all" | "7d" | "30d" | "month";
@@ -113,12 +122,12 @@ export default function AnalyticsPage() {
     setError(null);
     getAnalyticsDashboard(presetToRange(preset))
       .then((res) => setDashboard(res))
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Failed to load analytics."))
+      .catch((err) => setError(getErrorMessage(err, "Failed to load analytics.")))
       .finally(() => setLoading(false));
   }, [ready, preset]);
 
   if (!ready || !user) {
-    return <div className="flex flex-1 items-center justify-center text-zinc-500">Loading…</div>;
+    return <PageLoading />;
   }
 
   const funnelItems: BarListItem[] = dashboard
@@ -161,17 +170,7 @@ export default function AnalyticsPage() {
     <DashboardShell
       user={user}
       title="Analytics"
-      nav={[
-        { label: "Overview", href: "/dashboard" },
-        { label: "Products & Orders", href: "/dashboard/products" },
-        { label: "Inbox", href: "/dashboard/inbox" },
-        { label: "AI Assistant", href: "/dashboard/ai" },
-        { label: "Knowledge Base", href: "/dashboard/knowledge" },
-        { label: "Campaigns", href: "/dashboard/campaigns" },
-        { label: "WhatsApp", href: "/dashboard/whatsapp" },
-        { label: "Billing", href: "/dashboard/billing" },
-        { label: "Analytics", href: "/dashboard/analytics" },
-      ]}
+      nav={DASHBOARD_NAV}
     >
       <div className="space-y-8">
         {error && <Alert kind="error" message={error} />}
@@ -203,7 +202,7 @@ export default function AnalyticsPage() {
             value={dashboard ? formatDuration(dashboard.response_time.average_seconds) : "—"}
             hint={
               dashboard
-                ? `from ${dashboard.response_time.sample_count} reply${dashboard.response_time.sample_count === 1 ? "" : "ies"}`
+                ? `from ${dashboard.response_time.sample_count} ${dashboard.response_time.sample_count === 1 ? "reply" : "replies"}`
                 : undefined
             }
           />

@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Alert } from "@/components/Alert";
 import { DashboardShell } from "@/components/DashboardShell";
+import { PageLoading } from "@/components/PageLoading";
+import { DASHBOARD_NAV } from "@/lib/navigation";
 import {
-  ApiError,
   assignConversation,
   createConversation,
   listConversations,
@@ -15,6 +16,7 @@ import {
   sendMessage,
   updateConversation,
 } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
 import { useRequireAuth } from "@/lib/useAuth";
 import type { Conversation, ConversationStatus, Customer, Message, StaffMember } from "@/types";
 
@@ -72,7 +74,7 @@ export default function InboxPage() {
       });
       setConversations(res.results);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to load conversations.");
+      setError(getErrorMessage(err, "Failed to load conversations."));
     }
   }
 
@@ -81,7 +83,7 @@ export default function InboxPage() {
       const res = await listMessages(conversationId);
       setMessages(res.results);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to load messages.");
+      setError(getErrorMessage(err, "Failed to load messages."));
     }
   }
 
@@ -128,7 +130,7 @@ export default function InboxPage() {
       await refreshMessages(selectedId);
       await refreshConversations();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to send message.");
+      setError(getErrorMessage(err, "Failed to send message."));
     } finally {
       setSending(false);
     }
@@ -141,7 +143,7 @@ export default function InboxPage() {
       await updateConversation(selected.id, { status: next });
       await refreshConversations();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to update status.");
+      setError(getErrorMessage(err, "Failed to update status."));
     }
   }
 
@@ -152,7 +154,7 @@ export default function InboxPage() {
       await assignConversation(selected.id, userId || null);
       await refreshConversations();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to reassign conversation.");
+      setError(getErrorMessage(err, "Failed to reassign conversation."));
     }
   }
 
@@ -163,7 +165,7 @@ export default function InboxPage() {
       await updateConversation(selected.id, { ai_enabled: !selected.ai_enabled });
       await refreshConversations();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to update AI handoff.");
+      setError(getErrorMessage(err, "Failed to update AI handoff."));
     }
   }
 
@@ -173,7 +175,7 @@ export default function InboxPage() {
       const res = await listCustomers({ search: customerSearch || undefined });
       setCustomerResults(res.results);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to search customers.");
+      setError(getErrorMessage(err, "Failed to search customers."));
     }
   }
 
@@ -191,38 +193,35 @@ export default function InboxPage() {
       await refreshConversations();
       setSelectedId(conversation.id);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to start conversation.");
+      setError(getErrorMessage(err, "Failed to start conversation."));
     } finally {
       setCreating(false);
     }
   }
 
   if (!ready || !user) {
-    return <div className="flex flex-1 items-center justify-center text-zinc-500">Loading…</div>;
+    return <PageLoading />;
   }
 
   return (
     <DashboardShell
       user={user}
       title="Inbox"
-      nav={[
-        { label: "Overview", href: "/dashboard" },
-        { label: "Products & Orders", href: "/dashboard/products" },
-        { label: "Inbox", href: "/dashboard/inbox" },
-        { label: "AI Assistant", href: "/dashboard/ai" },
-        { label: "Knowledge Base", href: "/dashboard/knowledge" },
-        { label: "Campaigns", href: "/dashboard/campaigns" },
-        { label: "WhatsApp", href: "/dashboard/whatsapp" },
-        { label: "Billing", href: "/dashboard/billing" },
-        { label: "Analytics", href: "/dashboard/analytics" },
-      ]}
+      nav={DASHBOARD_NAV}
     >
       <div className="space-y-4">
         {error && <Alert kind="error" message={error} />}
 
         <div className="flex h-[70vh] gap-4 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
           {/* ── Left pane: conversation list ─────────────────── */}
-          <div className="flex w-80 shrink-0 flex-col border-r border-zinc-200 dark:border-zinc-800">
+          {/* Below lg, this two-pane layout can't fit both at once (a
+              fixed w-80 list pane left ~70px for the thread on a 390px
+              phone, clipped instead of readable) — so on mobile, show
+              exactly one pane at a time: the list until a conversation is
+              selected, then the thread (with a Back control) instead. */}
+          <div
+            className={`w-full shrink-0 flex-col border-r border-zinc-200 lg:flex lg:w-80 dark:border-zinc-800 ${selected ? "hidden lg:flex" : "flex"}`}
+          >
             <div className="flex items-center justify-between gap-2 border-b border-zinc-200 p-3 dark:border-zinc-800">
               <select
                 value={statusFilter}
@@ -330,7 +329,7 @@ export default function InboxPage() {
           </div>
 
           {/* ── Right pane: thread ───────────────────────────── */}
-          <div className="flex flex-1 flex-col">
+          <div className={`flex-1 flex-col ${selected ? "flex" : "hidden lg:flex"}`}>
             {!selected && (
               <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
                 Select a conversation to view it.
@@ -340,6 +339,15 @@ export default function InboxPage() {
             {selected && (
               <>
                 <div className="flex flex-wrap items-center gap-3 border-b border-zinc-200 p-3 dark:border-zinc-800">
+                  <button
+                    onClick={() => setSelectedId(null)}
+                    aria-label="Back to conversations"
+                    className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100 lg:hidden dark:text-zinc-400 dark:hover:bg-zinc-800"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} className="h-4 w-4">
+                      <path d="M15 6l-6 6 6 6" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
                   <div>
                     <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
                       {selected.customer_name || selected.customer_phone}

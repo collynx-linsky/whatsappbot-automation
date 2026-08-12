@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 
 import { Alert } from "@/components/Alert";
 import { DashboardShell } from "@/components/DashboardShell";
+import { PageLoading } from "@/components/PageLoading";
+import { DASHBOARD_NAV } from "@/lib/navigation";
 import { Field } from "@/components/Field";
 import {
-  ApiError,
   createOrder,
   createProduct,
   listCustomers,
@@ -14,6 +15,7 @@ import {
   listProducts,
   updateOrderStatus,
 } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
 import { useRequireAuth } from "@/lib/useAuth";
 import type { Customer, Order, OrderStatus, Product } from "@/types";
 
@@ -63,7 +65,7 @@ export default function ProductsPage() {
       setOrders(ordersRes.results);
       setCustomers(customersRes.results);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to load catalog.");
+      setError(getErrorMessage(err, "Failed to load catalog."));
     }
   }
 
@@ -90,7 +92,7 @@ export default function ProductsPage() {
       setProductForm(emptyProductForm);
       await refreshAll();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to add product.");
+      setError(getErrorMessage(err, "Failed to add product."));
     } finally {
       setSubmittingProduct(false);
     }
@@ -110,7 +112,7 @@ export default function ProductsPage() {
       setOrderForm(emptyOrderForm);
       await refreshAll();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to create order.");
+      setError(getErrorMessage(err, "Failed to create order."));
     } finally {
       setSubmittingOrder(false);
     }
@@ -122,12 +124,12 @@ export default function ProductsPage() {
       await updateOrderStatus(order.id, next);
       await refreshAll();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to update order status.");
+      setError(getErrorMessage(err, "Failed to update order status."));
     }
   }
 
   if (!ready || !user) {
-    return <div className="flex flex-1 items-center justify-center text-zinc-500">Loading…</div>;
+    return <PageLoading />;
   }
 
   const canManageCatalog = user.role === "business_owner" || user.role === "manager";
@@ -136,17 +138,7 @@ export default function ProductsPage() {
     <DashboardShell
       user={user}
       title="Products & Orders"
-      nav={[
-        { label: "Overview", href: "/dashboard" },
-        { label: "Products & Orders", href: "/dashboard/products" },
-        { label: "Inbox", href: "/dashboard/inbox" },
-        { label: "AI Assistant", href: "/dashboard/ai" },
-        { label: "Knowledge Base", href: "/dashboard/knowledge" },
-        { label: "Campaigns", href: "/dashboard/campaigns" },
-        { label: "WhatsApp", href: "/dashboard/whatsapp" },
-        { label: "Billing", href: "/dashboard/billing" },
-        { label: "Analytics", href: "/dashboard/analytics" },
-      ]}
+      nav={DASHBOARD_NAV}
     >
       <div className="space-y-8">
         {error && <Alert kind="error" message={error} />}

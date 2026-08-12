@@ -4,7 +4,9 @@ import { useEffect, useState } from "react";
 
 import { Alert } from "@/components/Alert";
 import { DashboardShell } from "@/components/DashboardShell";
-import { ApiError, listSessions, revokeSession } from "@/lib/api";
+import { PageLoading } from "@/components/PageLoading";
+import { listSessions, revokeSession } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
 import { useRequireAuth } from "@/lib/useAuth";
 import type { Session } from "@/types";
 
@@ -19,7 +21,7 @@ export default function SessionsPage() {
       const res = await listSessions();
       setSessions(res);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to load sessions.");
+      setError(getErrorMessage(err, "Failed to load sessions."));
     }
   }
 
@@ -36,14 +38,14 @@ export default function SessionsPage() {
       await revokeSession(jti);
       await refresh();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to revoke session.");
+      setError(getErrorMessage(err, "Failed to revoke session."));
     } finally {
       setRevokingJti(null);
     }
   }
 
   if (!ready || !user) {
-    return <div className="flex flex-1 items-center justify-center text-zinc-500">Loading…</div>;
+    return <PageLoading />;
   }
 
   return (

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Alert } from "@/components/Alert";
 import { Field } from "@/components/Field";
 import * as api from "@/lib/api";
-import { ApiError } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
 import {
   clearPendingToken,
   dashboardPathForRole,
@@ -42,7 +42,7 @@ export default function MfaVerifyPage() {
       clearPendingToken();
       router.push(dashboardPathForRole(user.role));
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Unable to reach the server.");
+      setError(getErrorMessage(err, "Unable to reach the server."));
     } finally {
       setSubmitting(false);
     }

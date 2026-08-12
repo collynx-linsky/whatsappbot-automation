@@ -4,15 +4,17 @@ import { Fragment, useEffect, useState } from "react";
 
 import { Alert } from "@/components/Alert";
 import { DashboardShell } from "@/components/DashboardShell";
+import { PageLoading } from "@/components/PageLoading";
+import { DASHBOARD_NAV } from "@/lib/navigation";
 import { Field } from "@/components/Field";
 import {
-  ApiError,
   createKnowledgeDocument,
   deleteKnowledgeDocument,
   listBusinesses,
   listKnowledgeChunks,
   listKnowledgeDocuments,
 } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
 import { useRequireAuth } from "@/lib/useAuth";
 import type { KnowledgeChunk, KnowledgeDocument, KnowledgeSourceType } from "@/types";
 
@@ -54,7 +56,7 @@ export default function KnowledgePage() {
       const res = await listKnowledgeDocuments();
       setDocuments(res.results);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to load knowledge base.");
+      setError(getErrorMessage(err, "Failed to load knowledge base."));
     }
   }
 
@@ -90,7 +92,7 @@ export default function KnowledgePage() {
       setFile(null);
       await refreshDocuments();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to upload document.");
+      setError(getErrorMessage(err, "Failed to upload document."));
     } finally {
       setSubmitting(false);
     }
@@ -103,7 +105,7 @@ export default function KnowledgePage() {
       if (expandedId === doc.id) setExpandedId(null);
       await refreshDocuments();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to delete document.");
+      setError(getErrorMessage(err, "Failed to delete document."));
     }
   }
 
@@ -120,31 +122,21 @@ export default function KnowledgePage() {
       const res = await listKnowledgeChunks(doc.id);
       setChunks(res.results);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to load chunks.");
+      setError(getErrorMessage(err, "Failed to load chunks."));
     } finally {
       setChunksLoading(false);
     }
   }
 
   if (!ready || !user) {
-    return <div className="flex flex-1 items-center justify-center text-zinc-500">Loading…</div>;
+    return <PageLoading />;
   }
 
   return (
     <DashboardShell
       user={user}
       title="Knowledge Base"
-      nav={[
-        { label: "Overview", href: "/dashboard" },
-        { label: "Products & Orders", href: "/dashboard/products" },
-        { label: "Inbox", href: "/dashboard/inbox" },
-        { label: "AI Assistant", href: "/dashboard/ai" },
-        { label: "Knowledge Base", href: "/dashboard/knowledge" },
-        { label: "Campaigns", href: "/dashboard/campaigns" },
-        { label: "WhatsApp", href: "/dashboard/whatsapp" },
-        { label: "Billing", href: "/dashboard/billing" },
-        { label: "Analytics", href: "/dashboard/analytics" },
-      ]}
+      nav={DASHBOARD_NAV}
     >
       <div className="space-y-8">
         {error && <Alert kind="error" message={error} />}

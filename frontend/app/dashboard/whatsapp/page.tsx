@@ -4,16 +4,20 @@ import { useEffect, useState } from "react";
 
 import { Alert } from "@/components/Alert";
 import { DashboardShell } from "@/components/DashboardShell";
+import { PageLoading } from "@/components/PageLoading";
+import { EmptyState } from "@/components/EmptyState";
+import { DASHBOARD_NAV } from "@/lib/navigation";
 import { Field } from "@/components/Field";
 import {
-  ApiError,
   createWhatsAppAccount,
   listBusinesses,
   listWhatsAppAccounts,
   updateWhatsAppAccount,
 } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
 import { useRequireAuth } from "@/lib/useAuth";
 import type { WhatsAppAccount, WhatsAppAccountStatus } from "@/types";
+import { IconPhone } from "@/components/Icons";
 
 const STATUS_STYLE: Record<WhatsAppAccountStatus, string> = {
   pending: "bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-300",
@@ -51,7 +55,7 @@ export default function WhatsAppPage() {
       const res = await listWhatsAppAccounts();
       setAccounts(res.results);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to load WhatsApp accounts.");
+      setError(getErrorMessage(err, "Failed to load WhatsApp accounts."));
     }
   }
 
@@ -78,7 +82,7 @@ export default function WhatsAppPage() {
       setConnectForm(emptyConnectForm);
       await refreshAccounts();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to connect WhatsApp account.");
+      setError(getErrorMessage(err, "Failed to connect WhatsApp account."));
     } finally {
       setConnecting(false);
     }
@@ -96,31 +100,21 @@ export default function WhatsAppPage() {
       setReconnectToken("");
       await refreshAccounts();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to reconnect.");
+      setError(getErrorMessage(err, "Failed to reconnect."));
     } finally {
       setReconnecting(false);
     }
   }
 
   if (!ready || !user) {
-    return <div className="flex flex-1 items-center justify-center text-zinc-500">Loading…</div>;
+    return <PageLoading />;
   }
 
   return (
     <DashboardShell
       user={user}
       title="WhatsApp"
-      nav={[
-        { label: "Overview", href: "/dashboard" },
-        { label: "Products & Orders", href: "/dashboard/products" },
-        { label: "Inbox", href: "/dashboard/inbox" },
-        { label: "AI Assistant", href: "/dashboard/ai" },
-        { label: "Knowledge Base", href: "/dashboard/knowledge" },
-        { label: "Campaigns", href: "/dashboard/campaigns" },
-        { label: "WhatsApp", href: "/dashboard/whatsapp" },
-        { label: "Billing", href: "/dashboard/billing" },
-        { label: "Analytics", href: "/dashboard/analytics" },
-      ]}
+      nav={DASHBOARD_NAV}
     >
       {!canManage ? (
         <p className="rounded-xl border border-dashed border-zinc-300 bg-white/50 p-5 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-400">
@@ -197,9 +191,13 @@ export default function WhatsAppPage() {
                 </div>
               ))}
               {accounts?.length === 0 && (
-                <p className="rounded-xl border border-dashed border-zinc-300 bg-white/50 p-5 text-center text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-400">
-                  No WhatsApp number connected yet — connect one below.
-                </p>
+                <div className="rounded-xl border border-dashed border-zinc-300 bg-white/50 dark:border-zinc-700 dark:bg-zinc-900/50">
+                  <EmptyState
+                    icon={<IconPhone className="h-8 w-8" />}
+                    title="No WhatsApp number connected"
+                    description="Connect a WhatsApp Business number below to start sending and receiving real messages."
+                  />
+                </div>
               )}
             </div>
           </section>

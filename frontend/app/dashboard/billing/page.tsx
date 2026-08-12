@@ -4,8 +4,11 @@ import { useEffect, useState } from "react";
 
 import { Alert } from "@/components/Alert";
 import { DashboardShell } from "@/components/DashboardShell";
+import { PageLoading } from "@/components/PageLoading";
+import { DASHBOARD_NAV } from "@/lib/navigation";
 import { Meter } from "@/components/Meter";
-import { ApiError, getUsageSummary, listInvoices } from "@/lib/api";
+import { getUsageSummary, listInvoices } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
 import { useRequireAuth } from "@/lib/useAuth";
 import type { Invoice, InvoiceStatus, UsageLimitName, UsageSummary } from "@/types";
 
@@ -44,33 +47,23 @@ export default function BillingPage() {
     if (!ready) return;
     getUsageSummary()
       .then((res) => setUsage(res))
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Failed to load usage."));
+      .catch((err) => setError(getErrorMessage(err, "Failed to load usage.")));
     if (canViewInvoices) {
       listInvoices()
         .then((res) => setInvoices(res.results))
-        .catch((err) => setError(err instanceof ApiError ? err.message : "Failed to load invoices."));
+        .catch((err) => setError(getErrorMessage(err, "Failed to load invoices.")));
     }
   }, [ready, canViewInvoices]);
 
   if (!ready || !user) {
-    return <div className="flex flex-1 items-center justify-center text-zinc-500">Loading…</div>;
+    return <PageLoading />;
   }
 
   return (
     <DashboardShell
       user={user}
       title="Billing"
-      nav={[
-        { label: "Overview", href: "/dashboard" },
-        { label: "Products & Orders", href: "/dashboard/products" },
-        { label: "Inbox", href: "/dashboard/inbox" },
-        { label: "AI Assistant", href: "/dashboard/ai" },
-        { label: "Knowledge Base", href: "/dashboard/knowledge" },
-        { label: "Campaigns", href: "/dashboard/campaigns" },
-        { label: "WhatsApp", href: "/dashboard/whatsapp" },
-        { label: "Billing", href: "/dashboard/billing" },
-        { label: "Analytics", href: "/dashboard/analytics" },
-      ]}
+      nav={DASHBOARD_NAV}
     >
       <div className="space-y-8">
         {error && <Alert kind="error" message={error} />}

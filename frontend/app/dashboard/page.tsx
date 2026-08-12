@@ -4,8 +4,11 @@ import { useEffect, useState } from "react";
 
 import { Alert } from "@/components/Alert";
 import { DashboardShell } from "@/components/DashboardShell";
+import { PageLoading } from "@/components/PageLoading";
+import { DASHBOARD_NAV } from "@/lib/navigation";
 import { Field } from "@/components/Field";
-import { ApiError, createStaff, listBusinesses, listStaff, updateStaff } from "@/lib/api";
+import { createStaff, listBusinesses, listStaff, updateStaff } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
 import { useRequireAuth } from "@/lib/useAuth";
 import type { Business, StaffMember } from "@/types";
 
@@ -25,7 +28,7 @@ export default function DashboardPage() {
       const res = await listStaff();
       setStaff(res.results);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to load team.");
+      setError(getErrorMessage(err, "Failed to load team."));
     }
   }
 
@@ -37,7 +40,7 @@ export default function DashboardPage() {
     // otherwise catches).
     listBusinesses()
       .then((res) => setBusinesses(res.results))
-      .catch((err) => setError(err instanceof ApiError ? err.message : "Failed to load business."));
+      .catch((err) => setError(getErrorMessage(err, "Failed to load business.")));
     // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshStaff();
   }, [ready]);
@@ -55,7 +58,7 @@ export default function DashboardPage() {
       setStaffForm(emptyStaffForm);
       await refreshStaff();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to add team member.");
+      setError(getErrorMessage(err, "Failed to add team member."));
     } finally {
       setSubmitting(false);
     }
@@ -67,12 +70,12 @@ export default function DashboardPage() {
       await updateStaff(member.id, { is_active: !member.is_active });
       await refreshStaff();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to update team member.");
+      setError(getErrorMessage(err, "Failed to update team member."));
     }
   }
 
   if (!ready || !user) {
-    return <div className="flex flex-1 items-center justify-center text-zinc-500">Loading…</div>;
+    return <PageLoading />;
   }
 
   const isOwner = user.role === "business_owner";
@@ -81,17 +84,7 @@ export default function DashboardPage() {
     <DashboardShell
       user={user}
       title="Business Dashboard"
-      nav={[
-        { label: "Overview", href: "/dashboard" },
-        { label: "Products & Orders", href: "/dashboard/products" },
-        { label: "Inbox", href: "/dashboard/inbox" },
-        { label: "AI Assistant", href: "/dashboard/ai" },
-        { label: "Knowledge Base", href: "/dashboard/knowledge" },
-        { label: "Campaigns", href: "/dashboard/campaigns" },
-        { label: "WhatsApp", href: "/dashboard/whatsapp" },
-        { label: "Billing", href: "/dashboard/billing" },
-        { label: "Analytics", href: "/dashboard/analytics" },
-      ]}
+      nav={DASHBOARD_NAV}
     >
       <div className="space-y-8">
         {error && <Alert kind="error" message={error} />}
@@ -245,11 +238,6 @@ export default function DashboardPage() {
             </form>
           </section>
         )}
-
-        <section className="rounded-xl border border-dashed border-zinc-300 bg-white/50 p-5 text-sm text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900/50 dark:text-zinc-400">
-          The AI assistant settings and knowledge base modules land in the next build phases —
-          see docs/ROADMAP.md.
-        </section>
       </div>
     </DashboardShell>
   );

@@ -5,11 +5,11 @@ import { useEffect, useState } from "react";
 import { Alert } from "@/components/Alert";
 import { BarList, type BarListItem } from "@/components/BarList";
 import { DashboardShell } from "@/components/DashboardShell";
+import { PageLoading } from "@/components/PageLoading";
 import { Field } from "@/components/Field";
 import { Sparkline } from "@/components/Sparkline";
 import { StatTile } from "@/components/StatTile";
 import {
-  ApiError,
   activateTenant,
   generateInvoice,
   getPlatformAnalytics,
@@ -17,6 +17,7 @@ import {
   onboardBusiness,
   suspendTenant,
 } from "@/lib/api";
+import { getErrorMessage } from "@/lib/errors";
 import { useRequireAuth } from "@/lib/useAuth";
 import type { PlatformDashboard, Tenant } from "@/types";
 
@@ -58,7 +59,7 @@ export default function AdminPage() {
       setTenants(tenantsRes.results);
       setPlatform(platformRes);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to load tenants.");
+      setError(getErrorMessage(err, "Failed to load tenants."));
     }
   }
 
@@ -84,7 +85,7 @@ export default function AdminPage() {
       setForm(emptyForm);
       await refresh();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to onboard business.");
+      setError(getErrorMessage(err, "Failed to onboard business."));
     } finally {
       setSubmitting(false);
     }
@@ -100,7 +101,7 @@ export default function AdminPage() {
       }
       await refresh();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to update tenant.");
+      setError(getErrorMessage(err, "Failed to update tenant."));
     }
   }
 
@@ -115,14 +116,14 @@ export default function AdminPage() {
       const invoice = await generateInvoice({ tenant: tenant.id });
       setSuccess(`Generated ${invoice.invoice_number} (${invoice.currency} ${invoice.amount}).`);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to generate invoice.");
+      setError(getErrorMessage(err, "Failed to generate invoice."));
     } finally {
       setGeneratingId(null);
     }
   }
 
   if (!ready || !user) {
-    return <div className="flex flex-1 items-center justify-center text-zinc-500">Loading…</div>;
+    return <PageLoading />;
   }
 
   return (
