@@ -66,7 +66,8 @@ test.describe("Authenticated dashboard pages render without error", () => {
   test("WhatsApp", async ({ page }) => {
     await page.goto("/dashboard/whatsapp");
     await expect(page.getByRole("heading", { name: "WhatsApp" })).toBeVisible();
-    await expect(page.getByText("No WhatsApp number connected yet")).toBeVisible();
+    // EmptyState's title/description split (see components/EmptyState.tsx).
+    await expect(page.getByText("No WhatsApp number connected")).toBeVisible();
   });
 
   test("Billing", async ({ page }) => {
